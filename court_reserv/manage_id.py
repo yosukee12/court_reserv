@@ -43,7 +43,14 @@ class Manage_Id():
                     if len(row) > 3 and row[0] != "" and row[3] != "":
                         # IDとパスワードの長さが8文字以外だと飛ばす
                         if len(row[0]) == 8 and len(row[3]) == 8:
-                            id_dict.update({row[0]:[row[1], row[2], row[3]]})
+                            # TODO ここ下手くそだから最適化する
+                            if len(row) == 4:
+                                id_dict.update({row[0]:[row[1], row[2], row[3]]})
+                            elif len(row) == 5:
+                                id_dict.update({row[0]:[row[1], row[2], row[3], row[4]]})
+                            elif len(row) == 6:
+                                id_dict.update({row[0]:[row[1], row[2], row[3], row[4], row[5], row[6]]})
+
                         else:
                             print["ID: " + row[0] + ",pass: " + row[1] + "不正なID"]
                             continue
@@ -64,8 +71,11 @@ class Manage_Id():
             writer = csv.writer(f)
             for k, v in id_dict.items():
                 if k != "" and v[2] != "":
+                    # TODO ここ下手くそなので最適化する
                     if len(v) == 3:
                         writer.writerow([k, v[0], v[1], v[2]])
+                    elif len(v) == 4:
+                        writer.writerow([k, v[0], v[1], v[2], v[3]])
                     elif len(v) == 5:
                         writer.writerow([k, v[0], v[1], v[2], v[3], v[4]])
                     else:
@@ -112,4 +122,5 @@ class Manage_Id():
             else:
                 print("ID:" + k + " 有効")
                 alive_id_dict[k] = v
+        driver.close()
         return alive_id_dict, dead_id_dict
