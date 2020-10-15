@@ -64,6 +64,9 @@ class Court_Reserv(tk.Frame):
         self.create_widgets()
 
     def create_widgets(self):
+        # Label CSV PATH
+        self.label_csvpath = ttk.Label(self, text="CSVファイル出力先: " + config['PATH']['OUTPUT_CSV_PATH'], background="white")
+
         #Entry
         self.entry_input_csv = ttk.Entry(self)
         self.entry_input_csv.insert(tk.END, 'インプットcsvファイルを入力')
@@ -118,7 +121,8 @@ class Court_Reserv(tk.Frame):
         self.button_check_id.configure(command=self.check_id_button)
 
         # 配置
-        self.entry_input_csv.grid(row=0, column=0, columnspan=10, padx=5, pady=5, sticky=tk.W+tk.E)
+        self.label_csvpath.grid(row=0, column=0, columnspan=2)
+        self.entry_input_csv.grid(row=1, column=0, columnspan=10, padx=5, pady=5, sticky=tk.W+tk.E)
         self.label1.grid(row=2, column=0, columnspan=1)
         self.button_semiauto_reserv.grid(row=2, column=1, columnspan=3, sticky=tk.W + tk.E)
         self.button_check_lottery.grid(row=3, column=1, columnspan=1, padx=5, pady=5, sticky=tk.W + tk.E)
