@@ -160,7 +160,7 @@ class Court_Reserv(tk.Frame):
         """
         抽選申込み結果確認ボタンが押された時の処理
         """
-        self.check_reserv(self.entry_input_csv.get(), check_reserv_csv)
+        self.check_reserv(mi.get_id_dict_from_csv(self.entry_result_csv.get()), check_reserv_csv)
 
     def check_id_button(self):
         """
