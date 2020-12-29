@@ -47,9 +47,10 @@ class Manage_Id():
                             if len(row) == 4:
                                 id_dict.update({row[0]:[row[1], row[2], row[3]]})
                             elif len(row) == 5:
-                                id_dict.update({row[0]:[row[1], row[2], row[3], row[4]]})
+                                id_dict.update({row[0]:[row[1], row[2], row[3], row[4
+                                ]]})
                             elif len(row) == 6:
-                                id_dict.update({row[0]:[row[1], row[2], row[3], row[4], row[5], row[6]]})
+                                id_dict.update({row[0]:[row[1], row[2], row[3], row[4], row[5]]})
 
                         else:
                             print["ID: " + row[0] + ",pass: " + row[1] + "不正なID"]
