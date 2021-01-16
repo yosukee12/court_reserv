@@ -556,6 +556,8 @@ class Court_Reserv(tk.Frame):
                         alert.accept()
                     except TimeoutException or UnexpectedAlertPresentException:
                         continue
+        
+        time.sleep(5)
         self.driver.close()
         
 def main():
