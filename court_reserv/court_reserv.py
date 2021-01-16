@@ -389,10 +389,14 @@ class Court_Reserv(tk.Frame):
                                                               'Timed out waiting for PA creation ' +
                                                               'confirmation popup to appear.')
                         alert = self.driver.switch_to.alert
-                        ##alert.accept() # acceptは手動で押す(ハードコピー取る)
+                        alert.accept()
                         print("ID:" + k + " 確定日→ " + found_list[2] + " " + found_list[3])
                         result_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3]]
                         logging.info("ID:" + k + " 予約確定完了→ " + " ".join(found_list))
+                        ## 確定後の画面のhtmlを保存
+                        #html = self.driver.page_source
+                        #with open(config['PATH']['OUTPUT_CSV_PATH'] + '/' + k + '_' + found_list[2] + found_list[3] + '.html', 'w', encoding='utf-8') as f:
+                        #    f.write(html)
                     # labelタグが8つの場合は当選日2日
                     elif len(found_list) == 8:
                         while found_list:
@@ -401,10 +405,16 @@ class Court_Reserv(tk.Frame):
                                                                   'Timed out waiting for PA creation ' +
                                                                   'confirmation popup to appear.')
                             alert = self.driver.switch_to.alert
-                            ##alert.accept() # acceptは手動で押す(ハードコピー取る)
+                            alert.accept()
                             print("ID:" + k + " 確定日→ " + found_list[2] + " " + found_list[3])
                             result_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3], found_list[6] + " " + found_list[7]]
                             logging.info("ID:" + k + " 予約確定完了→ " + " ".join(found_list))
+                            ## 確定後の画面のhtmlを保存
+                            #html = self.driver.page_source
+                            #with open(config['PATH']['OUTPUT_CSV_PATH'] + '/' + k + '_' + found_list[2] + found_list[
+                            #    3] + '.html', 'w', encoding='utf-8') as f:
+                            #    f.write(html)
+
                             found_list = [elem.text for elem in soup.find_all('label')]
 
                 except UnexpectedAlertPresentException:
@@ -412,6 +422,7 @@ class Court_Reserv(tk.Frame):
                     result_dict[k] = [v[0], v[1], v[2], "", ""]
                     continue
 
+        time.sleep(5)
         self.driver.close()
         if output_csv_path != "":
             mi.output_csv_from_id_dict(result_dict, output_csv_path)
