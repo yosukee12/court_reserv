@@ -389,7 +389,7 @@ class Court_Reserv(tk.Frame):
                                                               'Timed out waiting for PA creation ' +
                                                               'confirmation popup to appear.')
                         alert = self.driver.switch_to.alert
-                        ##alert.accept() acceptは手動で押す(ハードコピー取る)
+                        ##alert.accept() # acceptは手動で押す(ハードコピー取る)
                         print("ID:" + k + " 確定日→ " + found_list[2] + " " + found_list[3])
                         result_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3]]
                         logging.info("ID:" + k + " 予約確定完了→ " + " ".join(found_list))
@@ -401,7 +401,7 @@ class Court_Reserv(tk.Frame):
                                                                   'Timed out waiting for PA creation ' +
                                                                   'confirmation popup to appear.')
                             alert = self.driver.switch_to.alert
-                            alert.accept()
+                            ##alert.accept() # acceptは手動で押す(ハードコピー取る)
                             print("ID:" + k + " 確定日→ " + found_list[2] + " " + found_list[3])
                             result_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3], found_list[6] + " " + found_list[7]]
                             logging.info("ID:" + k + " 予約確定完了→ " + " ".join(found_list))
