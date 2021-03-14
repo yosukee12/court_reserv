@@ -115,6 +115,7 @@ class Manage_Id():
                     else:
                         # 有効期限が近づいている画面の場合
                         dead_soon_id_dict[k] = v
+                        print("ID:" + k + " 期限近い")
                         driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
             except UnexpectedAlertPresentException:
                 # パスワードが間違っているポップアップが出た場合
