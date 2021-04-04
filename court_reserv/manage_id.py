@@ -117,6 +117,9 @@ class Manage_Id():
                         dead_soon_id_dict[k] = v
                         print("ID:" + k + " 期限近い")
                         driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
+                if "伝言表示画面" in self.driver.title:
+                    self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
+
             except UnexpectedAlertPresentException:
                 # パスワードが間違っているポップアップが出た場合
                 print("ID:" + k + " 期限切れ")

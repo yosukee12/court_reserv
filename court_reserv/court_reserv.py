@@ -237,6 +237,10 @@ class Court_Reserv(tk.Frame):
                         continue
                     else:
                         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
+                if "伝言表示画面" in self.driver.title:
+                    self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
+                    logging.warn("ID:" + k + " 伝言アリ")
+
             except UnexpectedAlertPresentException:
                 print("ID:" + k + " 期限切れ")
                 logging.warning("ID:" + k + " 期限切れ")
@@ -303,6 +307,10 @@ class Court_Reserv(tk.Frame):
                         continue
                     else:
                         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
+                if "伝言表示画面" in self.driver.title:
+                    self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
+                    logging.warn("ID:" + k + " 伝言アリ")
+
             except UnexpectedAlertPresentException:
                 print("ID:" + k + " 期限切れ")
                 logging.warning("ID:" + k + " 期限切れ")
@@ -370,6 +378,10 @@ class Court_Reserv(tk.Frame):
                         continue
                     else:
                         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
+                if "伝言表示画面" in self.driver.title:
+                    self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
+                    logging.warn("ID:" + k + " 伝言アリ")
+
             except UnexpectedAlertPresentException:
                 print("ID:" + k + " 期限切れ")
                 logging.warning("ID:" + k + " 期限切れ")
@@ -463,6 +475,10 @@ class Court_Reserv(tk.Frame):
                         continue
                     else:
                         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
+                if "伝言表示画面" in self.driver.title:
+                    self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
+                    logging.warn("ID:" + k + " 伝言アリ")
+
             except UnexpectedAlertPresentException:
                 print("ID:" + k + " 期限切れ")
                 logging.warning("ID:" + k + " 期限切れ")
@@ -521,7 +537,12 @@ class Court_Reserv(tk.Frame):
             if "お知らせ画面" in self.driver.title:
                 self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
                 logging.warn("ID:" + k + " 期限が近くなっています")
+
+            if "伝言表示画面" in self.driver.title:
+                self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
+                logging.warn("ID:" + k + " 伝言アリ")
             logging.info("ID:" + k + " ログイン")
+
             # time.sleep(0.5)
             if "登録メニュー画面" in self.driver.title:
                 # 抽選申し込み画面へ
