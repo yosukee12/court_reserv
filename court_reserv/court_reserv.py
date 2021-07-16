@@ -69,7 +69,7 @@ class Court_Reserv(tk.Frame):
 
         #Entry
         self.entry_input_csv = ttk.Entry(self)
-        self.entry_input_csv.insert(tk.END, 'インプットcsvファイルを入力')
+        self.entry_input_csv.insert(tk.END, config['PATH']['OUTPUT_CSV_PATH'] + "/")
 
         # Label 1
         self.label1 = ttk.Label(self, text="1. 毎月1日〜10日", background="white")
@@ -94,7 +94,7 @@ class Court_Reserv(tk.Frame):
 
         #Entry
         self.entry_result_csv = ttk.Entry(self)
-        self.entry_result_csv.insert(tk.END, '当選日csvファイルを入力')
+        self.entry_result_csv.insert(tk.END, config['PATH']['OUTPUT_CSV_PATH'] + "/")
 
         # Determine Reserv Button
         self.button_determine_reserv = ttk.Button(self)
@@ -113,7 +113,7 @@ class Court_Reserv(tk.Frame):
 
         #Entry
         self.entry_check_id_csv = ttk.Entry(self)
-        self.entry_check_id_csv.insert(tk.END, 'ID有効確認用csvファイルを入力')
+        self.entry_check_id_csv.insert(tk.END, config['PATH']['OUTPUT_CSV_PATH'] + "/")
 
         # Check ID Button
         self.button_check_id = ttk.Button(self)
