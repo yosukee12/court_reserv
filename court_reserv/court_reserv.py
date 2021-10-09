@@ -569,6 +569,11 @@ class Court_Reserv(tk.Frame):
                             ## 2日分申込み完了したら次のIDへ
                             if reserv_count == 2:
                                 break
+                            elif reserv_count ==1:
+                                # 確認 ボタン
+                                self.driver.execute_script("javascript:doAction((_dom == 3) ? document.layers['disp'].document.form1 : document.form1, gLotWInstLotApplyMailNotAction);")
+                                # 利用日から ボタン
+                                self.driver.execute_script("javascript:sendInstGrCd((_dom == 3) ? document.layers['disp'].document.form1 : document.form1, gLotWTransLotInstSrchVacantAction, '12700020' , '9999')")
                         # ポップアップアラートの表示待ち
                         WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
                                                     'Timed out waiting for PA creation ' +
