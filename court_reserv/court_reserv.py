@@ -411,16 +411,22 @@ class Court_Reserv(tk.Frame):
                         #    f.write(html)
                     # labelタグが8つの場合は当選日2日
                     elif len(found_list) == 8:
-                        while found_list:
+                        for i in range(2):
                             # 2日当選日があった場合、labelが空になるまで
                             WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
                                                                   'Timed out waiting for PA creation ' +
                                                                   'confirmation popup to appear.')
                             alert = self.driver.switch_to.alert
                             alert.accept()
-                            print("ID:" + k + " 確定日→ " + found_list[2] + " " + found_list[3] + ", " + found_list[6] + " " + found_list[7])
-                            result_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3], found_list[6] + " " + found_list[7]]
-                            logging.info("ID:" + k + " 予約確定完了→ " + " ".join(found_list))
+                            if i == 0:
+                                print("ID:" + k + " 確定日→ " + found_list[2] + " " + found_list[3])
+                                #result_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3], found_list[6] + " " + found_list[7]]
+                                logging.info("ID:" + k + " 予約確定完了→ " + " ".join(found_list))
+                            elif i == 1:
+                                print("ID:" + k + " 確定日→ " + found_list[6] + " " + found_list[7])
+                                result_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3],found_list[6] + " " + found_list[7]]
+                                logging.info("ID:" + k + " 予約確定完了→ " + " ".join(found_list))
+
                             ## 確定後の画面のhtmlを保存
                             #html = self.driver.page_source
                             #with open(config['PATH']['OUTPUT_CSV_PATH'] + '/' + k + '_' + found_list[2] + found_list[
