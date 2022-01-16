@@ -336,7 +336,7 @@ class Court_Reserv(tk.Frame):
 
                 except UnexpectedAlertPresentException:
                     print("ID:" + k + " 申込みなし")
-                    result_dict[k] = [v[0], v[1], v[2], "", ""]
+                    #result_dict[k] = [v[0], v[1], v[2], "", ""]
                     continue
 
         self.driver.close()
@@ -498,7 +498,7 @@ class Court_Reserv(tk.Frame):
                     # soup = bs(self.driver.page_source)
                     # found_list = [elem.text for elem in soup.find_all('td', class_='tablelist')]
                     # TODO: 当選確定済の当選結果 のみ出力させたい
-                    time.sleep(10)
+                    time.sleep(5)
                 except UnexpectedAlertPresentException:
                     print("ID:" + k + " 申込みなし")
                     result_dict[k] = [v[0], v[1], v[2], "", ""]
