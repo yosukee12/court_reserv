@@ -25,7 +25,7 @@ config = configparser.ConfigParser()
 config.read('config.ini', encoding='utf-8')
 
 # Log
-logfile = config['PATH']['LOG_PATH'] + '/court_reserv_{0}.log'.format(datetime.date.today())
+logfile = config['PATH']['LOG_PATH'] + '/court_reserv.log'
 log_fmt = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(filename=logfile, format=log_fmt, level=logging.INFO)
 
