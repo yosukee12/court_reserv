@@ -518,12 +518,14 @@ class Court_Reserv(tk.Frame):
         # 引数でID dictを指定しない場合
         if not id_dict:
             id_dict = self.id_dict
-
+        # 申し込み人数カウント用
+        list_count = 1
         # Chromeドライバーの起動
         self.driver = webdriver.Chrome(executable_path=driver_path, chrome_options=options)
         for k, v in id_dict.items():
             reserv_count = 0
             self.driver.get(config['URL']['TOP_URL'])
+            print("申し込み " + list_count + "/" + len(id_dict))
             # フレーム移動
             self.driver.switch_to.frame("pawae1002")
             # ログインページへ移動
@@ -588,7 +590,7 @@ class Court_Reserv(tk.Frame):
                         alert.accept()
                     except TimeoutException or UnexpectedAlertPresentException:
                         continue
-        
+            list_count += 1
         time.sleep(5)
         self.driver.close()
         
