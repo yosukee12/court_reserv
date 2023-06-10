@@ -525,7 +525,7 @@ class Court_Reserv(tk.Frame):
         for k, v in id_dict.items():
             reserv_count = 0
             self.driver.get(config['URL']['TOP_URL'])
-            print("申し込み " + list_count + "/" + len(id_dict))
+            print("申し込み " + list_count + "/" + str(len(id_dict)))
             # フレーム移動
             self.driver.switch_to.frame("pawae1002")
             # ログインページへ移動
