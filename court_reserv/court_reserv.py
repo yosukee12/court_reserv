@@ -181,7 +181,7 @@ class Court_Reserv(tk.Frame):
         コートの空き状況をチェック
         """
         # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), chrome_options=options)
+        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
         self.driver.get(top_url)
         # フレーム移動
         self.driver.switch_to.frame("pawae1002")
@@ -218,7 +218,7 @@ class Court_Reserv(tk.Frame):
         reserv_dict = {}
         
         # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(executable_path=driver_path, chrome_options=options)
+        self.driver = webdriver.Chrome(executable_path=driver_path, options=options)
         for k, v in id_dict.items():
             self.driver.get(config['URL']['TOP_URL'])
             # フレーム移動
@@ -289,7 +289,7 @@ class Court_Reserv(tk.Frame):
 
         result_dict = {}
         # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(executable_path=driver_path, chrome_options=options)
+        self.driver = webdriver.Chrome(executable_path=driver_path, options=options)
         for k, v in id_dict.items():
             self.driver.get(config['URL']['TOP_URL'])
             # フレーム移動
@@ -298,11 +298,11 @@ class Court_Reserv(tk.Frame):
             try:
                 self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
                 self.driver.page_source
-                self.driver.find_element_by_name("userId").send_keys(k)
-                self.driver.find_element_by_name("password").send_keys(v[2])
+                self.driver.find_element(By.NAME,"userId").send_keys(k)
+                self.driver.find_element(By.NAME,"password").send_keys(v[2])
                 time.sleep(5)
                 # ログイン
-                self.driver.find_element_by_xpath("//*[contains(@href, 'submitLogin')]").click()
+                self.driver.find_element(By.XPATH,"//*[contains(@href, 'submitLogin')]").click()
                 # 有効期限が近づいている画面が出た場合
                 if "お知らせ画面" in self.driver.title:
                     if "利用者カードの有効期限が切れている" in self.driver.page_source:
@@ -361,7 +361,7 @@ class Court_Reserv(tk.Frame):
 
         result_dict = {}
         # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(executable_path=driver_path, chrome_options=options)
+        self.driver = webdriver.Chrome(executable_path=driver_path, options=options)
         for k, v in id_dict.items():
             self.driver.get(config['URL']['TOP_URL'])
             # フレーム移動
@@ -370,11 +370,11 @@ class Court_Reserv(tk.Frame):
             try:
                 self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
                 self.driver.page_source
-                self.driver.find_element_by_name("userId").send_keys(k)
-                self.driver.find_element_by_name("password").send_keys(v[2])
+                self.driver.find_element(By.NAME,"userId").send_keys(k)
+                self.driver.find_element(By.NAME,"password").send_keys(v[2])
                 time.sleep(5)
                 # ログイン
-                self.driver.find_element_by_xpath("//*[contains(@href, 'submitLogin')]").click()
+                self.driver.find_element(By.XPATH,"//*[contains(@href, 'submitLogin')]").click()
                 # 有効期限が近づいている画面が出た場合
                 if "お知らせ画面" in self.driver.title:
                     if "利用者カードの有効期限が切れている" in self.driver.page_source:
@@ -465,7 +465,7 @@ class Court_Reserv(tk.Frame):
 
         result_dict = {}
         # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(executable_path=driver_path, chrome_options=options)
+        self.driver = webdriver.Chrome(executable_path=driver_path, options=options)
         for k, v in id_dict.items():
             self.driver.get(config['URL']['TOP_URL'])
             # フレーム移動
@@ -474,11 +474,11 @@ class Court_Reserv(tk.Frame):
             try:
                 self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
                 self.driver.page_source
-                self.driver.find_element_by_name("userId").send_keys(k)
-                self.driver.find_element_by_name("password").send_keys(v[2])
+                self.driver.find_element(By.NAME,"userId").send_keys(k)
+                self.driver.find_element(By.NAME,"password").send_keys(v[2])
                 time.sleep(5)
                 # ログイン
-                self.driver.find_element_by_xpath("//*[contains(@href, 'submitLogin')]").click()
+                self.driver.find_element(By.XPATH,"//*[contains(@href, 'submitLogin')]").click()
                 # 有効期限が近づいている画面が出た場合
                 if "お知らせ画面" in self.driver.title:
                     if "利用者カードの有効期限が切れている" in self.driver.page_source:
@@ -526,7 +526,7 @@ class Court_Reserv(tk.Frame):
         # 申し込み人数カウント用
         list_count = 1
         # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(executable_path=driver_path, chrome_options=options)
+        self.driver = webdriver.Chrome(executable_path=driver_path, options=options)
         for k, v in id_dict.items():
             reserv_count = 0
             self.driver.get(config['URL']['TOP_URL'])
@@ -537,11 +537,11 @@ class Court_Reserv(tk.Frame):
             try:
                 self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
                 self.driver.page_source
-                self.driver.find_element_by_name("userId").send_keys(k)
-                self.driver.find_element_by_name("password").send_keys(v[2])
+                self.driver.find_element(By.NAME,"userId").send_keys(k)
+                self.driver.find_element(By.NAME,"password").send_keys(v[2])
                 time.sleep(5)
                 # ログイン
-                self.driver.find_element_by_xpath("//*[contains(@href, 'submitLogin')]").click()
+                self.driver.find_element(By.XPATH,"//*[contains(@href, 'submitLogin')]").click()
             except UnexpectedAlertPresentException:
                 print("ID:" + k + " 期限切れ")
                 logging.warning("ID:" + k + " 期限切れ")

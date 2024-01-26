@@ -94,20 +94,20 @@ class Manage_Id():
         dead_soon_id_dict = {} # 期限切れが近いIDのdict
         alive_id_dict = {} # 有効なIDのdict (返さないが一応）
         # Chromeドライバーの起動
-        driver = webdriver.Chrome(service=Service(['PATH']['DRIVER_PATH']), chrome_options=options)
+        driver = webdriver.Chrome(service=Service(config['PATH']['DRIVER_PATH']), options=options)
         for k, v in id_dict.items():
             driver.get(config['URL']['TOP_URL'])
-            # フレーム移動
+            # フレーム移動  
             driver.switch_to.frame("pawae1002")
             # ログインページへ移動
             try:
                 driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
                 driver.page_source
-                driver.find_element_by_name("userId").send_keys(k)
-                driver.find_element_by_name("password").send_keys(v[2])
+                driver.find_element(By.NAME,"userId").send_keys(k)
+                driver.find_element(By.NAME,"password").send_keys(v[2])
                 time.sleep(5)
                 # ログイン
-                driver.find_element_by_xpath("//*[contains(@href, 'submitLogin')]").click()
+                driver.find_element(By.XPATH,"//*[contains(@href, 'submitLogin')]").click()
                 if "お知らせ画面" in driver.title:
                     if "利用者カードの有効期限が切れている" in driver.page_source:
                         # 有効期限切れ画面の場合
