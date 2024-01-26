@@ -101,6 +101,7 @@ class Manage_Id():
             # ログインページへ移動
             try:
                 driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
+                driver.page_source
                 driver.find_element_by_name("userId").send_keys(k)
                 driver.find_element_by_name("password").send_keys(v[2])
                 time.sleep(5)

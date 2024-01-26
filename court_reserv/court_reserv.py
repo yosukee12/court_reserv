@@ -225,6 +225,7 @@ class Court_Reserv(tk.Frame):
             # ログインページへ移動
             try:
                 self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
+                self.driver.page_source
                 self.driver.find_element_by_name("userId").send_keys(k)
                 self.driver.find_element_by_name("password").send_keys(v[2])
                 time.sleep(5)
@@ -295,6 +296,7 @@ class Court_Reserv(tk.Frame):
             # ログインページへ移動
             try:
                 self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
+                self.driver.page_source
                 self.driver.find_element_by_name("userId").send_keys(k)
                 self.driver.find_element_by_name("password").send_keys(v[2])
                 time.sleep(5)
@@ -366,6 +368,7 @@ class Court_Reserv(tk.Frame):
             # ログインページへ移動
             try:
                 self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
+                self.driver.page_source
                 self.driver.find_element_by_name("userId").send_keys(k)
                 self.driver.find_element_by_name("password").send_keys(v[2])
                 time.sleep(5)
@@ -469,6 +472,7 @@ class Court_Reserv(tk.Frame):
             # ログインページへ移動
             try:
                 self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
+                self.driver.page_source
                 self.driver.find_element_by_name("userId").send_keys(k)
                 self.driver.find_element_by_name("password").send_keys(v[2])
                 time.sleep(5)
@@ -531,6 +535,7 @@ class Court_Reserv(tk.Frame):
             # ログインページへ移動
             try:
                 self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
+                self.driver.page_source
                 self.driver.find_element_by_name("userId").send_keys(k)
                 self.driver.find_element_by_name("password").send_keys(v[2])
                 time.sleep(5)
