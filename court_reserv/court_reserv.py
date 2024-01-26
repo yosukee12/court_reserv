@@ -11,6 +11,7 @@ from functools import partial
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.select import Select
 from selenium.webdriver.common.keys import Keys
@@ -180,7 +181,7 @@ class Court_Reserv(tk.Frame):
         コートの空き状況をチェック
         """
         # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(executable_path=driver_path, chrome_options=options)
+        self.driver = webdriver.Chrome(service=Service(driver_path), chrome_options=options)
         self.driver.get(top_url)
         # フレーム移動
         self.driver.switch_to.frame("pawae1002")

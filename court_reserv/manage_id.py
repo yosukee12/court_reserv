@@ -5,6 +5,7 @@ import time
 import configparser
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.select import Select
 from selenium.webdriver.common.keys import Keys
@@ -93,7 +94,7 @@ class Manage_Id():
         dead_soon_id_dict = {} # 期限切れが近いIDのdict
         alive_id_dict = {} # 有効なIDのdict (返さないが一応）
         # Chromeドライバーの起動
-        driver = webdriver.Chrome(executable_path=config['PATH']['DRIVER_PATH'], chrome_options=options)
+        driver = webdriver.Chrome(service=Service(['PATH']['DRIVER_PATH']), chrome_options=options)
         for k, v in id_dict.items():
             driver.get(config['URL']['TOP_URL'])
             # フレーム移動
