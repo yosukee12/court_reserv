@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ja"><!-- plwca1000.jsp -->
+
+<head>
+    <title>都立公園スポーツレクリエーション予約システム&nbsp;申込内容確認画面</title>
+    <meta charset="Shift_JIS">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="format-detection" content="telephone=no">
+    <link rel="shortcut icon" href="image/favicon.ico">
+    <link rel="stylesheet" href="css/jquery-ui.min.css">
+    <link rel="stylesheet" href="css/fgnp.min.css">
+    <link rel="stylesheet" href="css/fgnp-icons.css">
+    <link rel="stylesheet" href="css/combobox.css">
+    <link rel="stylesheet" href="css/prs_web_common.css">
+    <script src="js/lib/jquery-3.7.0.min.js"></script>
+    <script src="js/lib/jquery.cookie.js"></script>
+    <script src="js/lib/jquery-ui.min.js"></script>
+    <script src="js/lib/jquery-barcode.min.js"></script>
+    <script src="js/lib/bootstrap.bundle.min.js"></script>
+    <script src="js/paw_combobox.js"></script>
+    <script src="js/paw_doaction.js"></script>
+    <script src="js/paw_errormsg.js"></script>
+    <script src="js/paw_common.js"></script>
+    <script src="js/paw_l100.js"></script>
+    <script type="text/javascript"
+        src="https://www.google.com/recaptcha/api.js?render=6Lf_ciYpAAAAAEk3QnqYrrxgT9gjiu6GeNVm2VTa"></script>
+    <script
+        type="text/javascript">var gRecaptchaActive = true; var gRecaptchaSiteKey = '6Lf_ciYpAAAAAEk3QnqYrrxgT9gjiu6GeNVm2VTa'; var gRecaptchaActionName = 'webLot'; var gRecaptchaErrMsg = 'Failed to load reCAPTCHA JavaScript.';</script>
+    <script src="js/plwca1000.js"></script>
+    <script>var gLotWOpeTransLotInstSrchVacantAction = '/web/lotWOpeTransLotInstSrchVacantAction.do'; var gLotWInstLotApplyAction = '/web/lotWInstLotApplyAction.do'; var gRsvWTransContactAction = '/web/rsvWTransContactAction.do'; var gRsvTransSiteMapAction = '/web/rsvWTransSiteMapAction.do'; var gRsvWTransMenuAction = '/web/rsvWUserAttestationPageMoveAction.do'; var gLotWOpeLotListAction = '/web/lotWOpeLotListAction.do'; var gRsvWTransUserRegistAction = '/web/rsvWTransUserRegistAction.do'; var gRsvWTransUserLoginAction = '/web/rsvWTransUserLoginAction.do'; var gRsvWTransUserAttestationEndAction = '/web/rsvWTransUserAttestationEndAction.do'; var gRsvWTransChgPasswdAction = '/web/rsvWTransChgPasswdAction.do'; var gRsvWTransSetMfaAction = '/web/rsvWTransSetMfaAction.do'; var gRsvWTransMailAddressRegistAction = '/web/rsvWTransMailAddressRegistAction.do'; var gRsvWGetFoundTransAction = '/web/rsvWGetFoundTransAction.do'; var gRsvWTransFavorite2InfoDispAction = '/web/rsvWTransFavorite2InfoDispAction.do'; var gRsvWTransFavorite2InfoAction = '/web/rsvWTransFavorite2InfoAction.do'; var gLotWRegistLotFavoriteInfoDispAction = '/web/lotWRegistLotFavoriteInfoDispAction.do'; var gLotWTransLotFavoriteInfoAction = '/web/lotWTransLotFavoriteInfoAction.do'; var gRsvWOpeHomeAction = '/web/rsvWOpeHomeAction.do'; var gRsvWGetCancelRsvDataAction = '/web/rsvWGetCancelRsvDataAction.do'; var gRsvWTransRsvEquipListAction = '/web/rsvWTransRsvEquipListAction.do'; var gLotWOpeLotSearchAction = '/web/lotWOpeLotSearchAction.do'; var gLotWTransLotCancelListAction = '/web/lotWTransLotCancelListAction.do'; var gLotWTransLotElectListAction = '/web/lotWTransLotElectListAction.do'; var gLotWTransLotComfirmListAction = '/web/lotWTransLotComfirmListAction.do'; var gRsvWTransEventSrchAction = '/web/rsvWTransEventSrchAction.do'; var gRsvWTransInstListAction = '/web/rsvWTransInstListAction.do'; var gRsvWTransUseGuideAction = '/web/rsvWTransUseGuideAction.do'; var gRsvCreditInitListAction = '/web/rsvWRsvGetNotPaymentRsvDataListAction.do'; var gRsvGetApprRcptDataListAction = '/web/rsvWRsvGetApprRcptDataListAction.do'; var gRsvWTransUserUpdateItemSetAction = '/web/rsvWTransUserUpdateItemSetAction.do'; var gRsvWPenaltyHistoryRsvItemDispAction = '/web/rsvWPenaltyHistoryRsvItemDispAction.do'; var gRsvWTransGetRsvDataListAction = '/web/rsvWTransGetRsvDataListAction.do'; var gRsvWRsvProcess1OnlineMemberAction = '/web/rsvWRsvProcess1OnlineMemberAction.do';</script>
+</head>
+
+<body class="d-flex flex-column"
+    onload="javascript:msgHide();javascript:errorMsg(&quot;&quot;, 0);startInitTimer();javascript:changePurpose2(document.form1, true, document.form1.purpose.value);">
+    <script>loadMsgWrite(this.document); gUseCntChk = 1; gSelectUseNumber = 9999; var gLotInfoFg = 1; var gEventHisuChk = 0; var gEventSet = 2;</script>
+    <div id="wrapper" class="flex-grow-1 flex-shrink-0 h-100">
+        <form name="form1" method="post" action="index.jsp" onsubmit="return false;" autocomplete="off">
+            <script
+                type="text/javascript">$(function () { var text = '10062787'; $("#barcode").barcode("10062787", "code128", { barWidth: 2, barHeight: 150 }); });</script>
+            <div class="modal fade" id="envModal" tabindex="-1" role="dialog" aria-labelledby="envModalLabel">
+                <div class="modal-dialog modal-dialog-centered" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="envModalLabel">ご利用環境</h5><button type="button" class="close"
+                                data-dismiss="modal" aria-label="閉じる"><span aria-hidden="true">&times;</span></button>
+                        </div>
+                        <div class="modal-body">
+                            <h4><span>対応ブラウザ</span></h4>
+                            <p>対応ブラウザは以下のとおりです。いずれも最新版のみ対応しています。</p>
+                            <h5><span>デスクトップブラウザ</span></h5>
+                            <ul style="padding: 0 20px;">
+                                <li>Chrome</li>
+                                <li>Firefox</li>
+                                <li>Microsoft Edge</li>
+                                <li>Safari （macOS のみ）</li>
+                            </ul>
+                            <h5><span>モバイルデバイス</span></h5>
+                            <ul style="padding: 0 20px;">
+                                <li>Chrome for Android</li>
+                                <li>iOS Safari</li>
+                            </ul>
+                        </div>
+                        <div class="modal-footer"><button type="button" class="btn btn-back"
+                                data-dismiss="modal">閉じる</button></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal fade" id="modal-barcode" tabindex="-1" role="dialog" aria-labelledby="modal-menus-label">
+                <div class="modal-dialog modal-dialog-centered" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header"><span class="modal-title">利用者カード</span><button type="button"
+                                class="close" data-dismiss="modal" aria-label="閉じる"><span
+                                    aria-hidden="true">&times;</span></button></div>
+                        <div class="modal-body">
+                            <table class="table table-borderless">
+                                <tbody>
+                                    <tr>
+                                        <td class="td1"><label>利用者番号：</label><span>10062787</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="td2"><label>利用者氏名：</label><span>川上大輔 様</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="td3">
+                                            <div id="barcode"></div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="modal-footer"><button type="button" class="btn btn-back btn-lg mt-3 mb-2"
+                                data-dismiss="modal">閉じる</button></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal fade nav-menu-modal" id="modal-menus" tabindex="-1" role="dialog"
+                aria-labelledby="modal-menus-label">
+                <div class="modal-dialog modal-dialog-centered" role="document">
+                    <div class="modal-content">
+                        <div class="modal-body">
+                            <table class="table table-borderless">
+                                <tbody>
+                                    <tr onclick="menusCheck(this);">
+                                        <td><span class="fj-icon fj-icon-ranking fj-icon-20"></span><a
+                                                href="javascript:doAction(document.form1, gLotWOpeLotSearchAction);">抽選申込み</a>
+                                        </td>
+                                    </tr>
+                                    <tr onclick="menusCheck(this);">
+                                        <td><img src="image/icon/ranking-change.svg"><a
+                                                href="javascript:doAction(document.form1, gLotWTransLotCancelListAction);">抽選申込みの確認</a>
+                                        </td>
+                                    </tr>
+                                    <tr onclick="menusCheck(this);">
+                                        <td><img src="image/icon/hit.svg"><a
+                                                href="javascript:doAction(document.form1, gLotWTransLotElectListAction);">抽選結果</a>
+                                        </td>
+                                    </tr>
+                                    <tr onclick="menusCheck(this);">
+                                        <td><i class="fj-icon fj-icon-favorite fj-icon-20"></i><a
+                                                href="javascript:doAction(document.form1, gLotWRegistLotFavoriteInfoDispAction);">抽選申込みお気に入り登録</a>
+                                        </td>
+                                    </tr>
+                                    <tr onclick="menusCheck(this);">
+                                        <td><img src="image/icon/favorite-change.svg"><a
+                                                href="javascript:doAction(document.form1, gLotWTransLotFavoriteInfoAction);">抽選申込みお気に入り変更・削除</a>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal fade nav-menu-modal" id="modal-reservation-menus" tabindex="-1" role="dialog"
+                aria-labelledby="modal-reservation-menus">
+                <div class="modal-dialog modal-dialog-centered" role="document">
+                    <div class="modal-content">
+                        <div class="modal-body">
+                            <table class="table table-borderless">
+                                <tbody>
+                                    <tr onclick="menusCheck(this);">
+                                        <td><span class="fj-icon fj-icon-calendar-monthly fj-icon-20"></span><a
+                                                href="javascript:doAction(document.form1, gRsvWOpeHomeAction + '#free-search');">施設の予約</a>
+                                        </td>
+                                    </tr>
+                                    <tr onclick="menusCheck(this);">
+                                        <td><span class="fj-icon fj-icon-list-alt fj-icon-20"></span><a
+                                                href="javascript:doAction(document.form1, gRsvWGetCancelRsvDataAction);">予約の確認</a>
+                                        </td>
+                                    </tr>
+                                    <tr onclick="menusCheck(this);">
+                                        <td><i class="fj-icon fj-icon-credit-card-outline fj-icon-20"></i><a
+                                                href="javascript:doAction(document.form1, gRsvCreditInitListAction);">オンライン支払い</a>
+                                        </td>
+                                    </tr>
+                                    <tr onclick="menusCheck(this);">
+                                        <td><i class="fj-icon fj-icon-tools fj-icon-20"></i><a
+                                                href="javascript:doAction(document.form1, gRsvWTransRsvEquipListAction);">付帯設備の予約</a>
+                                        </td>
+                                    </tr>
+                                    <tr onclick="menusCheck(this);">
+                                        <td><span class="fj-icon fj-icon-log fj-icon-20"></span><a
+                                                href="javascript:doAction(document.form1, gRsvWTransGetRsvDataListAction);">利用履歴</a>
+                                        </td>
+                                    </tr>
+                                    <tr onclick="menusCheck(this);">
+                                        <td><span class="fj-icon fj-icon-list fj-icon-20"></span><a
+                                                href="javascript:doAction(document.form1, gRsvWPenaltyHistoryRsvItemDispAction);">ペナルティ履歴</a>
+                                        </td>
+                                    </tr>
+                                    <tr onclick="menusCheck(this);">
+                                        <td><i class="fj-icon fj-icon-favorite fj-icon-20"></i><a
+                                                href="javascript:doAction(document.form1, gRsvWTransFavorite2InfoDispAction);">予約お気に入り登録</a>
+                                        </td>
+                                    </tr>
+                                    <tr onclick="menusCheck(this);">
+                                        <td><img src="image/icon/favorite-change.svg"><a
+                                                href="javascript:doAction(document.form1, gRsvWTransFavorite2InfoAction);">予約お気に入り変更・削除</a>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <header class="navbar flex-column flex-grow-0 flex-shrink-0">
+                <div class="w-100 d-flex">
+                    <div id="title" class="d-flex flex-row justify-content-center">
+                        <div id="title-content" class="d-flex flex-row align-items-end">
+                            <div id="title-left" class="d-flex flex-row flex-grow-1"><a id="subtitle" class="toplink"
+                                    href="javascript:doAction(document.form1, gRsvWTransMenuAction);">都立公園スポーツレクリエーション予約システム</a>
+                            </div>
+                            <div id="pc-dropdown"
+                                class="flex-row justify-content-center align-items-center flex-grow-0 flex-shrink-0">
+                                <button id="btn-barcode" type="button"
+                                    class="btn btn-header d-flex flex-column align-items-center" data-toggle="modal"
+                                    data-target="#modal-barcode"><img src="image/icon/barcode.svg"
+                                        class="barcode-icon"><span class="icon-text">利用者カード表示</span></button>
+                                <div class="dropdown" id="userMenu"><a
+                                        class="btn btn-header d-flex flex-column align-items-center" href="#"
+                                        id="userName" data-toggle="dropdown" aria-expanded="false"><i
+                                            class="fj-icon fj-icon-menu fj-icon-20"></i><span
+                                            class="icon-text">マイメニュー</span></a>
+                                    <div class="dropdown-menu dropdown-menu-right"><span
+                                            class="dropdown-item-text font-weight-bold"><i class="fj-icon fj-icon-user">
+                                            </i>川上大輔 様</span>
+                                        <div role="separator" class="dropdown-divider"></div><a
+                                            href="javascript:doAction(document.form1, gRsvWTransUserUpdateItemSetAction);"
+                                            class="dropdown-item">利用者情報の変更・削除・更新</a><a
+                                            href="javascript:doAction(document.form1, gRsvWTransChgPasswdAction);"
+                                            class="dropdown-item">パスワード変更</a><a
+                                            href="javascript:doAction(document.form1, gRsvWTransSetMfaAction);"
+                                            class="dropdown-item">多要素認証設定</a><a
+                                            href="javascript:doAction(document.form1, gRsvWTransMailAddressRegistAction);"
+                                            class="dropdown-item">メールアドレス登録</a>
+                                        <div role="separator" class="dropdown-divider"></div><a
+                                            href="javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);"
+                                            class="dropdown-item">ログアウト</a>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="sp-dropdown" class="d-flex flex-row"><button id="btn-barcode" type="button"
+                                    class="btn btn-header d-flex flex-column align-items-center" data-toggle="modal"
+                                    data-target="#modal-barcode"><img src="image/icon/barcode.svg"
+                                        class="barcode-icon"><span class="icon-text">利用者カード表示</span></button>
+                                <div class="dropdown"><a href="#"
+                                        class="btn btn-header d-flex flex-column align-items-center"
+                                        data-toggle="dropdown"><span
+                                            class="fj-icon fj-icon-menu fj-icon-20"></span><span
+                                            class="icon-text">マイメニュー</span></a>
+                                    <div class="dropdown-menu dropdown-menu-right px-2"><span
+                                            class="dropdown-item-text font-weight-bold"><i class="fj-icon fj-icon-user">
+                                            </i>川上大輔 様</span>
+                                        <div role="separator" class="dropdown-divider"></div><a
+                                            href="javascript:doAction(document.form1, gRsvWTransUserUpdateItemSetAction);"
+                                            class="dropdown-item">利用者情報の変更・削除・更新</a><a
+                                            href="javascript:doAction(document.form1, gRsvWTransChgPasswdAction);"
+                                            class="dropdown-item">パスワード変更</a><a
+                                            href="javascript:doAction(document.form1, gRsvWTransSetMfaAction);"
+                                            class="dropdown-item">多要素認証設定</a><a
+                                            href="javascript:doAction(document.form1, gRsvWTransMailAddressRegistAction);"
+                                            class="dropdown-item">メールアドレス登録</a>
+                                        <div role="separator" class="dropdown-divider"></div><a
+                                            href="javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);"
+                                            class="dropdown-item">ログアウト</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="nav-menu-area">
+                        <div id="nav-menu">
+                            <nav class="nav nav-lines nav-lines-compact m-0"><a id="nav-home"
+                                    class="nav-item nav-link d-flex align-items-center " aria-current="page"
+                                    href="javascript:doAction(document.form1, gRsvWOpeHomeAction);">
+                                    <div class="m-auto"><span
+                                            class="fj-icon fj-icon-home fj-icon-20 nav-menu-icon"></span><span>ホーム</span>
+                                    </div>
+                                </a>
+                                <div class="nav-item dropdown d-table h-100 "><a
+                                        class="nav-link dropdown-toggle m-auto d-table-cell align-middle" href="#"
+                                        data-toggle="modal" data-target="#modal-reservation-menus"
+                                        aria-expanded="false"><img src="image/icon/reservation-unselected.svg"
+                                            class="nav-menu-icon nav-reservation-icon"><span>予約</span></a></div>
+                                <div class="nav-item dropdown d-table h-100  active"><a
+                                        class="nav-link dropdown-toggle m-auto d-table-cell align-middle" href="#"
+                                        data-toggle="modal" data-target="#modal-menus" aria-expanded="false"><span
+                                            class="fj-icon fj-icon-ranking fj-icon-20 nav-menu-icon"></span><span>抽選</span></a>
+                                </div>
+                            </nav>
+                        </div>
+                    </div>
+                </div>
+            </header>
+            <main id="plwba3000">
+                <div id="contents">
+                    <article id="lottery-confirm">
+                        <div id="title-area">
+                            <h2 class="bottom-edge session-title">抽選申込み確認<a class="icon-help" data-toggle="collapse"
+                                    href="#text-description" aria-expanded="true" aria-controls="text-description"><i
+                                        class="fj-icon fj-icon-status-unknown fj-icon-16 icon-help-title"
+                                        title="ヘルプ"><span class="sr-only">ヘルプ</span></i></a></h2>
+                            <div id="text-description" class="collapse show">
+                                <div class="d-flex flex-wrap text-description align-items-center">
+                                    <div class="mt-1">以下の内容で抽選申込みを行います。</div>
+                                    <div class="mt-1">必要な情報を入力し、<a href="#btn-go"><span
+                                                class="badge badge-btn-go">申込み</span></a>ボタンをクリックしてください。</div>
+                                    <div class="mt-1">既に種目ごとに2件の申込みされている場合は、申込番号を選択できません。</div>
+                                </div>
+                            </div>
+                        </div><br>
+                        <table class="table sp-block-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">分類</th>
+                                    <th scope="col">公園</th>
+                                    <th scope="col">施設</th>
+                                    <th scope="col">利用日</th>
+                                    <th scope="col">時間</th>
+                                    <th scope="col">利用面数</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td class="mt-2"><span class="title-sp font-weight-bold">分類：</span>テニス（人工芝）</td>
+                                    <td><span class="title-sp font-weight-bold">公園：</span>府中の森公園</td>
+                                    <td><span class="title-sp font-weight-bold">施設：</span>テニス（人工芝）</td>
+                                    <td><span class="title-sp font-weight-bold">利用日：</span><span
+                                            class="dow-saturday">4月20日(土曜)</span>&nbsp;2024年</td>
+                                    <td><span class="title-sp font-weight-bold">利用時間：</span>11時00分～13時00分</td>
+                                    <td class="mb-2"><span class="title-sp font-weight-bold">利用面数：</span>1面</td>
+                                </tr>
+                            </tbody>
+                        </table><br><input type="hidden" name="applyPepopleNum" value="0"><input type="hidden"
+                            name="eventName" value="">
+                        <div id="info-area"><span>抽選申込みは種目ごとに2件までです。</span>
+                            <table class="table sp-table">
+                                <tbody>
+                                    <tr>
+                                        <th scope="row" class="keep-all"><label for="apply">申込み番号<span
+                                                    class="badge badge-pill badge-required">必須</span></label></th>
+                                        <td><span class="select-form"><select name="applyHopeNo" id="apply"
+                                                    class="custom-select">
+                                                    <option value="0-0">選択してください。</option>
+                                                    <option value="2-1">申込み2件目</option>
+                                                </select></span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div><br>
+                        <div id="btn-area" class="text-center"><input type="hidden" name="recaptchaToken"
+                                id="recaptchaToken" value=""><button id="btn-go" type="submit"
+                                class="form-control btn btn-go btn-lg mb-2"
+                                onclick="javascript:sendLotApply(document.form1, gLotWInstLotApplyAction, event);"><i
+                                    class="fj-icon fj-icon-check"> </i>申込み</button><button type="button"
+                                class="form-control btn btn-back mb-2"
+                                onclick="javascript:doAction(document.form1, gLotWOpeTransLotInstSrchVacantAction);"><i
+                                    class="fj-icon fj-icon-back"> </i>もどる</button></div>
+                    </article>
+                </div>
+            </main><!-- pawzz1011.jsp -->
+            <div class="modal fade" id="envModal" tabindex="-1" role="dialog" aria-labelledby="envModalLabel">
+                <div class="modal-dialog modal-dialog-centered" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="envModalLabel">ご利用環境</h5><button type="button" class="close"
+                                data-dismiss="modal" aria-label="閉じる"><span aria-hidden="true">&times;</span></button>
+                        </div>
+                        <div class="modal-body">
+                            <h4><span>対応ブラウザ</span></h4>
+                            <p>対応ブラウザは以下のとおりです。いずれも最新版のみ対応しています。</p>
+                            <h5><span>デスクトップブラウザ</span></h5>
+                            <ul style="padding: 0 20px;">
+                                <li>Chrome</li>
+                                <li>Firefox</li>
+                                <li>Microsoft Edge</li>
+                                <li>Safari （macOS のみ）</li>
+                            </ul>
+                            <h5><span>モバイルデバイス</span></h5>
+                            <ul style="padding: 0 20px;">
+                                <li>Chrome for Android</li>
+                                <li>iOS Safari</li>
+                            </ul>
+                        </div>
+                        <div class="modal-footer"><button type="button" class="btn btn-back"
+                                data-dismiss="modal">閉じる</button></div>
+                    </div>
+                </div>
+            </div>
+            <div class="footer d-flex flex-column align-items-center">
+                <div class="footer-content">
+                    <div class="footer-link">
+                        <div role="container" class="footer-upper">
+                            <div role="separator" class="dropdown-divider sp-only"></div>
+                            <div class="user-guide"><a
+                                    href="javascript:doAction(document.form1, gRsvWTransUseGuideAction);">ご利用ガイド</a>
+                            </div>
+                            <div class="facility-list"><a
+                                    href="javascript:doAction(document.form1, gRsvWTransInstListAction);">公園・施設一覧</a>
+                            </div>
+                            <div role="separator" class="dropdown-divider sp-only"></div>
+                        </div>
+                        <div role="container" class="footer-lower"><a class="font-weight-normal"
+                                href="javascript:doAction(document.form1, gRsvTransSiteMapAction);">サイトマップ</a><a
+                                class="font-weight-normal" href="#envModal" data-toggle="modal">利用環境</a></div>
+                    </div>
+                    <div class="footer-copyright">
+                        <div class="mb-1"><img class="footer-logo" src="image/footer-logo.png"></div>
+                        <div>Copyright (C) 2023 TOKYO METROPOLITAN GOVERNMENT</div>
+                    </div>
+                </div>
+            </div><input type="hidden" name="displayNo" value="plwca1000"><input type="hidden" name="selectApplyNo"
+                value="0"><input type="hidden" name="selectHopeNo" value="0"><input type="hidden" name="selectPpsName"
+                value=""><input type="hidden" name="selectEventName" value=""><input type="hidden" name="e410200"
+                value="利用人数は半角数字で入力して下さい。"><input type="hidden" name="e410190" value="入力された利用人数が施設の収容人数を超えています。"><input
+                type="hidden" name="e410220" value="催し物名は全角文字で入力して下さい。"><input type="hidden" name="e410340"
+                value="種目を選択して下さい。"><input type="hidden" name="e512090" value="抽選申込処理を行います。よろしいですか？"><input
+                type="hidden" name="e411100" value="催し物名を正しく入力してください。"><input type="hidden" name="e412140"
+                value="申込番号を選択してください"><input type="hidden" name="insLotJKey"
+                value="23f93f67c7aa3fbac96b6373a4a88d46efa53f395d983c55c64dc4815f853e9fef5c79a3e611438430a0eab422c550be77faad6797bd44f1d80fc2e966c30333">
+            <div id="page-top" title="ページ先頭へ"><button type="button" class="btn btn-sm btn-light"><img
+                        src="image/top.svg" alt="ページ先頭へ"></button></div>
+        </form>
+    </div>
+    <script>endTagWrite(this.document);</script><noscript>このページではJavaScriptを使用しています。</noscript>
+</body>
+
+</html>

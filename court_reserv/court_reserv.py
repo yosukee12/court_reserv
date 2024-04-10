@@ -4,6 +4,7 @@ import time
 import logging
 import datetime
 import sys
+import re
 from manage_id import Manage_Id as mi
 import tkinter as tk
 from tkinter import ttk
@@ -176,6 +177,414 @@ class Court_Reserv(tk.Frame):
         mi.output_csv_from_id_dict(dead_id_list, dead_id_list_csv)
 
     # ここからCourt Reservメソッド
+    def semiauto_reserv(self, id_dict={}):
+        """
+        IDリストを引数にして
+        半自動抽選申込み. 抽選申込み日の選択と申込みは手動
+        """
+        # 引数でID dictを指定しない場合
+        if not id_dict:
+            id_dict = self.id_dict
+        # 申し込み人数カウント用
+        list_count = 1
+        # Chromeドライバーの起動
+        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
+        for k, v in id_dict.items():
+            reserv_count = 0
+            self.driver.get(config['URL']['TOP_URL'])
+            print("申し込み " + str(list_count) + "人目/" + str(len(id_dict)) + "人")
+            try:
+                # ログインページへ移動
+                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
+                self.driver.find_element(By.NAME,"userId").send_keys(k)
+                self.driver.find_element(By.NAME,"password").send_keys(v[2])
+                # ログイン
+                time.sleep(0.5)
+                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
+            except UnexpectedAlertPresentException:
+                print("ID:" + k + " 期限切れ")
+                logging.warning("ID:" + k + " 期限切れ")
+                continue
+
+            # # 有効期限が近づいている画面が出た場合
+            # if "お知らせ画面" in self.driver.title:
+            #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
+            #     logging.warn("ID:" + k + " 期限が近くなっています")
+
+            # if "伝言表示画面" in self.driver.title:
+            #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
+            #     logging.warn("ID:" + k + " 伝言アリ")
+            logging.info("ID:" + k + " ログイン")
+
+            if "ホーム画面" in self.driver.title:
+                # 抽選申し込み画面へ
+                self.driver.execute_script("javascript:doAction(document.form1, gLotWOpeLotSearchAction);")
+                # 種目選択
+                self.driver.execute_script("javascript:doLotEntry('130');")
+                # 公園選択（府中の森公園）
+                Select(self.driver.find_element(By.ID,"bname")).select_by_value("1301270")
+                time.sleep(1)
+                # 種目選択2回目（テニス（人工芝））
+                Select(self.driver.find_element(By.ID,"iname")).select_by_value("12700020")
+                while True:
+                    # 申し込み中処理（手動申し込み）
+                    time.sleep(0.1)
+                    try:
+                        if "東京都スポーツ施設サービス" in self.driver.title:
+                            logging.info("ID:" + k + " ログアウト")
+                            break
+                        elif "申込内容確認画面" in self.driver.title:
+                            reserv_count += 1
+                            soup = bs(self.driver.page_source, 'html.parser')
+                            # Beautiful soupで申込み日と時間の取得
+                            foundlist = [elem.text for elem in soup.find_all('td', text=['年', '月', '日', '時', '分'])]
+                            if reserv_count == 1:
+                                # 申し込み番号入力（1件目）
+                                time.sleep(0.5)
+                                Select(self.driver.find_element(By.ID,"apply")).select_by_value("1-1")
+                                time.sleep(0.5)
+                            elif reserv_count == 2:
+                                time.sleep(0.5)
+                                Select(self.driver.find_element(By.ID,"apply")).select_by_value("2-1")
+                                time.sleep(0.5)
+                            # 申込み実行 → rechapcha対策で手動クリックする
+                            #self.driver.execute_script("javascript:sendLotApply(document.form1, gLotWInstLotApplyAction, event);")
+                            #time.sleep(0.5)
+                            # ポップアップ処理
+                            WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
+                                                    'Timed out waiting for PA creation ' +
+                                                    'confirmation popup to appear.')
+                            alert = self.driver.switch_to.alert
+                            alert.accept()
+
+                            print("ID:" + k + " 申込み" + str(reserv_count) + "完了→ " + " ".join(foundlist))
+                            logging.info("ID:" + k + " 申込み" + str(reserv_count) + "完了→ " + " ".join(foundlist))
+                            time.sleep(2)
+                            ## 2日分申込み完了したら次のIDへ
+                            if reserv_count == 2:
+                                break
+                            elif reserv_count ==1:
+                                # 続けて申込み
+                                self.driver.execute_script("javascript:doAction(document.form1, gWOpeTransLotInstSrchVacantAction);")
+                        
+                        # # ポップアップアラートの表示待ち
+                        # WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
+                        #                             'Timed out waiting for PA creation ' +
+                        #                             'confirmation popup to appear.')
+                        # alert = self.driver.switch_to.alert
+                        # alert.accept()
+                    except TimeoutException or UnexpectedAlertPresentException:
+                        continue
+            list_count += 1
+            time.sleep(1)
+            # ログアウト
+            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
+            time.sleep(1)
+        self.driver.close()
+
+    def check_lottery(self, id_dict={}, output_csv_path=""):
+        """
+        IDリストを引数にして抽選申込み日を取得
+        IDに申込み日を追加したdictを返す
+        dict形式:
+            {ID, [名前(漢字),名前(カタカナ),パスワード(生年月日),申込日1,申込み日2]}
+        第2引数に出力先CSRファイルパスを指定した場合はCSVを出力
+        """
+        # 引数でID dictを指定しない場合
+        if not id_dict:
+            id_dict = self.id_dict
+        reserv_dict = {}
+        
+        # Chromeドライバーの起動
+        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
+        for k, v in id_dict.items():
+            self.driver.get(config['URL']['TOP_URL'])
+            try:
+                # ログインページへ移動
+                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
+                self.driver.find_element(By.NAME,"userId").send_keys(k)
+                self.driver.find_element(By.NAME,"password").send_keys(v[2])
+                # ログイン
+                time.sleep(0.5)
+                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
+
+                # # 有効期限が近づいている画面が出た場合
+                # if "お知らせ画面" in self.driver.title:
+                #     if "利用者カードの有効期限が切れている" in self.driver.page_source:
+                #         print("ID:" + k + " 期限切れ")
+                #         continue
+                #     else:
+                #         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
+                # if "伝言表示画面" in self.driver.title:
+                #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
+                #     logging.warn("ID:" + k + " 伝言アリ")
+
+            except UnexpectedAlertPresentException:
+                print("ID:" + k + " 期限切れ")
+                logging.warning("ID:" + k + " 期限切れ")
+                continue
+
+            if "ホーム画面" in self.driver.title:
+                try:
+                    # 抽選申し込み確認画面へ
+                    self.driver.execute_script("javascript:doAction(document.form1, gLotWTransLotCancelListAction);")
+                    # Beautiful soupで申込み日と時間の取得
+                    soup = bs(self.driver.page_source, 'html.parser')
+                    found_list = [elem.text for elem in soup.find_all('td', class_='keep-wide', text=['年', '月', '日', '時', '分'])]
+                    print(found_list)
+                    if len(found_list) == 8:
+                        print("ID:" + k + " 申込み日1→ " + found_list[2] + " " + found_list[3])
+                        print("ID:" + k + " 申込み日2→ " + found_list[6] + " " + found_list[7])
+                        reserv_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3], found_list[6] + " " + found_list[7]]
+                    elif len(found_list) == 4:
+                        print("ID:" + k + " 申込み日1→ " + found_list[2] + " " + found_list[3])
+                        reserv_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3], ""]
+                    else:
+                        print("ID:" + k + " 申込みなし")
+                        reserv_dict[k] = [v[0], v[1], v[2], "", ""]
+                except UnexpectedAlertPresentException:
+                    print("ID:" + k + " 申込みなし")
+                    reserv_dict[k] = [v[0], v[1], v[2], "", ""]
+                    continue
+
+            time.sleep(1)
+            # ログアウト
+            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
+            time.sleep(1)
+        self.driver.close()
+
+    def check_result(self, id_dict={}, output_csv_path=""):
+        """
+        IDリストを引数にして抽選当選日を取得
+        ※当選確定は手動
+        IDに当選日を追加したdictを返す
+        dict形式:
+            {ID, [名前(漢字),名前(カタカナ),パスワード(生年月日),当選日1,当選日2]}
+        第2引数に出力先CSRファイルパスを指定した場合はCSVを出力
+        """
+        if not id_dict:
+            id_dict = self.id_dict
+
+        result_dict = {}
+        # Chromeドライバーの起動
+        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
+        for k, v in id_dict.items():
+            self.driver.get(config['URL']['TOP_URL'])
+            try:
+                # ログインページへ移動
+                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
+                self.driver.find_element(By.NAME,"userId").send_keys(k)
+                self.driver.find_element(By.NAME,"password").send_keys(v[2])
+                # ログイン
+                time.sleep(0.5)
+                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
+                # 有効期限が近づいている画面が出た場合
+                # if "お知らせ画面" in self.driver.title:
+                #     if "利用者カードの有効期限が切れている" in self.driver.page_source:
+                #         print("ID:" + k + " 期限切れ")
+                #         continue
+                #     else:
+                #         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
+                # if "伝言表示画面" in self.driver.title:
+                #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
+                #     logging.warn("ID:" + k + " 伝言アリ")
+
+            except UnexpectedAlertPresentException:
+                print("ID:" + k + " 期限切れ")
+                logging.warning("ID:" + k + " 期限切れ")
+                continue
+
+            if "ホーム画面" in self.driver.title:
+                try:
+                    # 抽選結果確認画面へ
+                    self.driver.execute_script("javascript:doAction(document.form1, gLotWTransLotElectListAction);")
+                    # Beautiful soupで申込み日と時間の取得
+                    soup = bs(self.driver.page_source, 'html.parser')
+                    found_day_list = [elem.text for elem in soup.find_all('span', string=re.compile("月.*日(.*)"))]
+                    found_time_list = [elem.text for elem in soup.find_all(string=re.compile("時.*分～.*時.*分"))]
+                    # 当選日1日パターン
+                    if len(found_day_list) == 1:
+                        print("ID:" + k + " 当選日1→ " + found_day_list[0] + " " + found_time_list[0])
+                        result_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0]]
+                    # 当選日2日パターン
+                    elif len(found_day_list) == 2:
+                        print("ID:" + k + " 当選日1→ " + found_day_list[0] + " " + found_time_list[0])
+                        print("ID:" + k + " 当選日2→ " + found_day_list[1] + " " + found_time_list[1])
+                        result_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0], found_day_list[1] + " " + found_time_list[1]]
+
+                except UnexpectedAlertPresentException:
+                    print("ID:" + k + " 申込みなし")
+                    #result_dict[k] = [v[0], v[1], v[2], "", ""]
+                    continue
+            time.sleep(1)
+            # ログアウト
+            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
+            time.sleep(1)
+        self.driver.close()
+
+        if output_csv_path != "":
+            mi.output_csv_from_id_dict(result_dict, output_csv_path)
+
+        return result_dict
+
+    def determine_reserv(self, input_csv_path="", output_csv_path=""):
+        """
+        抽選確定日が記入されたcsvを引数にして, 半手動抽選確定をする
+        IDに確定日を追加したdictを返す
+        dict形式:
+            {ID, [名前(漢字),名前(カタカナ),パスワード(生年月日),確定日1,確定日2]}
+        第2引数に出力先CSRファイルパスを指定した場合はCSVを出力
+        """
+        print(input_csv_path)
+        id_dict = mi.get_id_dict_from_csv(input_csv_path)
+
+        result_dict = {}
+        # Chromeドライバーの起動
+        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
+        for k, v in id_dict.items():
+            self.driver.get(config['URL']['TOP_URL'])
+            try:
+                # ログインページへ移動
+                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
+                self.driver.find_element(By.NAME,"userId").send_keys(k)
+                self.driver.find_element(By.NAME,"password").send_keys(v[2])
+                # ログイン
+                time.sleep(0.5)
+                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
+                # # 有効期限が近づいている画面が出た場合
+                # if "お知らせ画面" in self.driver.title:
+                #     if "利用者カードの有効期限が切れている" in self.driver.page_source:
+                #         print("ID:" + k + " 期限切れ")
+                #         continue
+                #     else:
+                #         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
+                # if "伝言表示画面" in self.driver.title:
+                #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
+                #     logging.warn("ID:" + k + " 伝言アリ")
+
+            except UnexpectedAlertPresentException:
+                print("ID:" + k + " 期限切れ")
+                logging.warning("ID:" + k + " 期限切れ")
+                continue
+
+            if "ホーム画面" in self.driver.title:
+                try:
+                    # 抽選結果確認画面へ
+                    self.driver.execute_script("javascript:doAction(document.form1, gLotWTransLotElectListAction);")
+                    # Beautiful soupで申込み日と時間の取得
+                    soup = bs(self.driver.page_source, 'html.parser')
+                    found_day_list = [elem.text for elem in soup.find_all('span', string=re.compile("月.*日(.*)"))]
+                    found_time_list = [elem.text for elem in soup.find_all(string=re.compile("時.*分～.*時.*分"))]
+                    # 当選日1日パターン
+                    if len(found_day_list) == 1:
+                        WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
+                                                              'Timed out waiting for PA creation ' +
+                                                              'confirmation popup to appear.')
+                        alert = self.driver.switch_to.alert
+                        alert.accept()
+                        print("ID:" + k + " 確定日→ " + found_day_list[0] + " " + found_time_list[0])
+                        result_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0]]
+                        logging.info("ID:" + k + " 予約確定完了→ " + found_day_list[0] + " " + found_time_list[0])
+                    # 当選日2日パターン
+                    elif len(found_day_list) == 2:
+                        for i in range(2):
+                            # 2日当選日があった場合、labelが空になるまで
+                            WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
+                                                                  'Timed out waiting for PA creation ' +
+                                                                  'confirmation popup to appear.')
+                            alert = self.driver.switch_to.alert
+                            alert.accept()
+                            if i == 0:
+                                print("ID:" + k + " 確定日→ " + found_day_list[0] + " " + found_time_list[0])
+                                logging.info("ID:" + k + " 予約確定完了→ " + found_day_list[0] + " " + found_time_list[0])
+                            elif i == 1:
+                                print("ID:" + k + " 確定日→ " + found_day_list[2] + " " + found_time_list[2])
+                                result_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0],found_day_list[1] + " " + found_time_list[1]]
+                                logging.info("ID:" + k + " 予約確定完了→ " + found_day_list[1] + " " + found_time_list[1])
+
+                            ## 確定後の画面のhtmlを保存
+                            #html = self.driver.page_source
+                            #with open(config['PATH']['OUTPUT_CSV_PATH'] + '/' + k + '_' + found_list[2] + found_list[
+                            #    3] + '.html', 'w', encoding='utf-8') as f:
+                            #    f.write(html)
+
+                except UnexpectedAlertPresentException:
+                    print("ID:" + k + " 申込みなし")
+                    result_dict[k] = [v[0], v[1], v[2], "", ""]
+                    continue
+
+            time.sleep(1)
+            # ログアウト
+            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
+            time.sleep(1)
+
+        self.driver.close()
+        if output_csv_path != "":
+            mi.output_csv_from_id_dict(result_dict, output_csv_path)
+
+        return result_dict
+
+    def check_reserv(self, id_dict={}, output_csv_path=""):
+        """
+        IDリストを引数にして予約確定日を取得
+        IDに確定日を追加したdictを返す
+            ようにしたいが今はsleepで止めて手動確認する方式
+        dict形式:
+            {ID, [名前(漢字),名前(カタカナ),パスワード(生年月日),確定日1,確定日2]}
+        第2引数に出力先CSRファイルパスを指定した場合はCSVを出力
+        """
+        if not id_dict:
+            id_dict = self.id_dict
+
+        result_dict = {}
+        # Chromeドライバーの起動
+        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
+        for k, v in id_dict.items():
+            self.driver.get(config['URL']['TOP_URL'])
+            try:
+                # ログインページへ移動
+                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
+                self.driver.find_element(By.NAME,"userId").send_keys(k)
+                self.driver.find_element(By.NAME,"password").send_keys(v[2])
+                # ログイン
+                time.sleep(0.5)
+                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
+                # # 有効期限が近づいている画面が出た場合
+                # if "お知らせ画面" in self.driver.title:
+                #     if "利用者カードの有効期限が切れている" in self.driver.page_source:
+                #         print("ID:" + k + " 期限切れ")
+                #         continue
+                #     else:
+                #         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
+                # if "伝言表示画面" in self.driver.title:
+                #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
+                #     logging.warn("ID:" + k + " 伝言アリ")
+
+            except UnexpectedAlertPresentException:
+                print("ID:" + k + " 期限切れ")
+                logging.warning("ID:" + k + " 期限切れ")
+                continue
+
+            if "ホーム画面" in self.driver.title:
+                try:
+                    # 予約確認画面へ
+                    self.driver.execute_script("javascript:doAction(document.form1, gRsvWGetCancelRsvDataAction);")
+                    # TODO: 当選確定済の当選結果 のみ出力させたい
+                    time.sleep(3)
+                except UnexpectedAlertPresentException:
+                    print("ID:" + k + " 申込みなし")
+                    result_dict[k] = [v[0], v[1], v[2], "", ""]
+                    continue
+            # ログアウト
+            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
+            time.sleep(1)
+
+        self.driver.close()
+        # if output_csv_path != "":
+        #     mi.output_csv_from_id_dict(result_dict, output_csv_path)
+
+        return result_dict
+
     def check_court(self, month):
         """
         コートの空き状況をチェック
@@ -203,403 +612,8 @@ class Court_Reserv(tk.Frame):
         self.driver.execute_script("javascript:sendSelectWeekNum((_dom == 3) ? document.layers['disp'].document.form1 : document.form1, gRsvWGetInstSrchInfAction);")
         print(self.driver.page_source)
         # TODO ページの保存
-
-    def check_lottery(self, id_dict={}, output_csv_path=""):
-        """
-        IDリストを引数にして抽選申込み日を取得
-        IDに申込み日を追加したdictを返す
-        dict形式:
-            {ID, [名前(漢字),名前(カタカナ),パスワード(生年月日),申込日1,申込み日2]}
-        第2引数に出力先CSRファイルパスを指定した場合はCSVを出力
-        """
-        # 引数でID dictを指定しない場合
-        if not id_dict:
-            id_dict = self.id_dict
-        reserv_dict = {}
         
-        # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
-        for k, v in id_dict.items():
-            self.driver.get(config['URL']['TOP_URL'])
-            # フレーム移動
-            self.driver.switch_to.frame("pawae1002")
-            # ログインページへ移動
-            try:
-                self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
-                self.driver.page_source
-                self.driver.find_element(By.NAME,"userId").send_keys(k)
-                self.driver.find_element(By.NAME,"password").send_keys(v[2])
-                time.sleep(5)
-                # ログイン
-                self.driver.find_element(By.XPATH,"//*[contains(@href, 'submitLogin')]").click()
-                # 有効期限が近づいている画面が出た場合
-                if "お知らせ画面" in self.driver.title:
-                    if "利用者カードの有効期限が切れている" in self.driver.page_source:
-                        print("ID:" + k + " 期限切れ")
-                        continue
-                    else:
-                        self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
-                if "伝言表示画面" in self.driver.title:
-                    self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
-                    logging.warn("ID:" + k + " 伝言アリ")
-
-            except UnexpectedAlertPresentException:
-                print("ID:" + k + " 期限切れ")
-                logging.warning("ID:" + k + " 期限切れ")
-                continue
-
-            if "登録メニュー画面" in self.driver.title:
-                try:
-                    # 抽選申し込み確認画面へ
-                    self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gLotWTransCompleteLotListAction);")
-                    # Beautiful soupで申込み日と時間の取得
-                    soup = bs(self.driver.page_source)
-                    found_list = [elem.text for elem in soup.find_all('td', class_='tablelist')]
-                    if len(found_list) == 8:
-                        print("ID:" + k + " 申込み日1→ " + found_list[2] + " " + found_list[3])
-                        print("ID:" + k + " 申込み日2→ " + found_list[6] + " " + found_list[7])
-                        reserv_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3], found_list[6] + " " + found_list[7]]
-                    elif len(found_list) == 4:
-                        print("ID:" + k + " 申込み日1→ " + found_list[2] + " " + found_list[3])
-                        reserv_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3], ""]
-                    else:
-                        print("ID:" + k + " 申込みなし")
-                        reserv_dict[k] = [v[0], v[1], v[2], "", ""]
-                except UnexpectedAlertPresentException:
-                    print("ID:" + k + " 申込みなし")
-                    reserv_dict[k] = [v[0], v[1], v[2], "", ""]
-                    continue
-
-        self.driver.close()
-        if output_csv_path != "":
-            mi.output_csv_from_id_dict(reserv_dict, output_csv_path)
-        return reserv_dict
-
-    def check_result(self, id_dict={}, output_csv_path=""):
-        """
-        IDリストを引数にして抽選当選日を取得
-        ※当選確定は手動
-        IDに当選日を追加したdictを返す
-        dict形式:
-            {ID, [名前(漢字),名前(カタカナ),パスワード(生年月日),当選日1,当選日2]}
-        第2引数に出力先CSRファイルパスを指定した場合はCSVを出力
-        """
-        if not id_dict:
-            id_dict = self.id_dict
-
-        result_dict = {}
-        # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
-        for k, v in id_dict.items():
-            self.driver.get(config['URL']['TOP_URL'])
-            # フレーム移動
-            self.driver.switch_to.frame("pawae1002")
-            # ログインページへ移動
-            try:
-                self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
-                self.driver.page_source
-                self.driver.find_element(By.NAME,"userId").send_keys(k)
-                self.driver.find_element(By.NAME,"password").send_keys(v[2])
-                time.sleep(5)
-                # ログイン
-                self.driver.find_element(By.XPATH,"//*[contains(@href, 'submitLogin')]").click()
-                # 有効期限が近づいている画面が出た場合
-                if "お知らせ画面" in self.driver.title:
-                    if "利用者カードの有効期限が切れている" in self.driver.page_source:
-                        print("ID:" + k + " 期限切れ")
-                        continue
-                    else:
-                        self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
-                if "伝言表示画面" in self.driver.title:
-                    self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
-                    logging.warn("ID:" + k + " 伝言アリ")
-
-            except UnexpectedAlertPresentException:
-                print("ID:" + k + " 期限切れ")
-                logging.warning("ID:" + k + " 期限切れ")
-                continue
-
-            if "登録メニュー画面" in self.driver.title:
-                try:
-                    # 抽選申し込み確認画面へ
-                    self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gLotWTransLotElectListAction);")
-                    # Beautiful soupで申込み日と時間の取得
-                    soup = bs(self.driver.page_source)
-                    # 未確定当選にはlabelタグが付く
-                    found_list = [elem.text for elem in soup.find_all('label')]
-                    # labelタグが4つの場合は当選日1日
-                    if len(found_list) == 4:
-                        print("ID:" + k + " 当選日1→ " + found_list[2] + " " + found_list[3])
-                        result_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3]]
-                    # labelタグが8つの場合は当選日2日
-                    elif len(found_list) == 8:
-                        print("ID:" + k + " 当選日1→ " + found_list[2] + " " + found_list[3])
-                        print("ID:" + k + " 当選日2→ " + found_list[6] + " " + found_list[7])
-                        result_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3], found_list[6] + " " + found_list[7]]
-
-                except UnexpectedAlertPresentException:
-                    print("ID:" + k + " 申込みなし")
-                    #result_dict[k] = [v[0], v[1], v[2], "", ""]
-                    continue
-
-        self.driver.close()
-        if output_csv_path != "":
-            mi.output_csv_from_id_dict(result_dict, output_csv_path)
-
-        return result_dict
-
-    def determine_reserv(self, input_csv_path="", output_csv_path=""):
-        """
-        抽選確定日が記入されたcsvを引数にして, 半手動抽選確定をする
-        IDに確定日を追加したdictを返す
-        dict形式:
-            {ID, [名前(漢字),名前(カタカナ),パスワード(生年月日),確定日1,確定日2]}
-        第2引数に出力先CSRファイルパスを指定した場合はCSVを出力
-        """
-        print(input_csv_path)
-        id_dict = mi.get_id_dict_from_csv(input_csv_path)
-
-        result_dict = {}
-        # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
-        for k, v in id_dict.items():
-            self.driver.get(config['URL']['TOP_URL'])
-            # フレーム移動
-            self.driver.switch_to.frame("pawae1002")
-            # ログインページへ移動
-            try:
-                self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
-                self.driver.page_source
-                self.driver.find_element(By.NAME,"userId").send_keys(k)
-                self.driver.find_element(By.NAME,"password").send_keys(v[2])
-                time.sleep(5)
-                # ログイン
-                self.driver.find_element(By.XPATH,"//*[contains(@href, 'submitLogin')]").click()
-                # 有効期限が近づいている画面が出た場合
-                if "お知らせ画面" in self.driver.title:
-                    if "利用者カードの有効期限が切れている" in self.driver.page_source:
-                        print("ID:" + k + " 期限切れ")
-                        continue
-                    else:
-                        self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
-                if "伝言表示画面" in self.driver.title:
-                    self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
-                    logging.warn("ID:" + k + " 伝言アリ")
-
-            except UnexpectedAlertPresentException:
-                print("ID:" + k + " 期限切れ")
-                logging.warning("ID:" + k + " 期限切れ")
-                continue
-
-            if "登録メニュー画面" in self.driver.title:
-                try:
-                    # 抽選申し込み確認画面へ
-                    self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gLotWTransLotElectListAction);")
-                    # Beautiful soupで申込み日と時間の取得
-                    soup = bs(self.driver.page_source)
-                    # 未確定当選にはlabelタグが付く
-                    found_list = [elem.text for elem in soup.find_all('label')]
-                    # labelタグが4つの場合は当選日1日
-                    if len(found_list) == 4:
-                        WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
-                                                              'Timed out waiting for PA creation ' +
-                                                              'confirmation popup to appear.')
-                        alert = self.driver.switch_to.alert
-                        alert.accept()
-                        print("ID:" + k + " 確定日→ " + found_list[2] + " " + found_list[3])
-                        result_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3]]
-                        logging.info("ID:" + k + " 予約確定完了→ " + " ".join(found_list))
-                        ## 確定後の画面のhtmlを保存
-                        #html = self.driver.page_source
-                        #with open(config['PATH']['OUTPUT_CSV_PATH'] + '/' + k + '_' + found_list[2] + found_list[3] + '.html', 'w', encoding='utf-8') as f:
-                        #    f.write(html)
-                    # labelタグが8つの場合は当選日2日
-                    elif len(found_list) == 8:
-                        for i in range(2):
-                            # 2日当選日があった場合、labelが空になるまで
-                            WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
-                                                                  'Timed out waiting for PA creation ' +
-                                                                  'confirmation popup to appear.')
-                            alert = self.driver.switch_to.alert
-                            alert.accept()
-                            if i == 0:
-                                print("ID:" + k + " 確定日→ " + found_list[2] + " " + found_list[3])
-                                #result_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3], found_list[6] + " " + found_list[7]]
-                                logging.info("ID:" + k + " 予約確定完了→ " + " ".join(found_list))
-                            elif i == 1:
-                                print("ID:" + k + " 確定日→ " + found_list[6] + " " + found_list[7])
-                                result_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3],found_list[6] + " " + found_list[7]]
-                                logging.info("ID:" + k + " 予約確定完了→ " + " ".join(found_list))
-
-                            ## 確定後の画面のhtmlを保存
-                            #html = self.driver.page_source
-                            #with open(config['PATH']['OUTPUT_CSV_PATH'] + '/' + k + '_' + found_list[2] + found_list[
-                            #    3] + '.html', 'w', encoding='utf-8') as f:
-                            #    f.write(html)
-
-                            found_list = [elem.text for elem in soup.find_all('label')]
-
-                except UnexpectedAlertPresentException:
-                    print("ID:" + k + " 申込みなし")
-                    result_dict[k] = [v[0], v[1], v[2], "", ""]
-                    continue
-
-        time.sleep(5)
-        self.driver.close()
-        if output_csv_path != "":
-            mi.output_csv_from_id_dict(result_dict, output_csv_path)
-
-        return result_dict
-
-    def check_reserv(self, id_dict={}, output_csv_path=""):
-        """
-        IDリストを引数にして予約確定日を取得
-        IDに確定日を追加したdictを返す
-            ようにしたいが今はsleepで止めて手動確認する方式
-        dict形式:
-            {ID, [名前(漢字),名前(カタカナ),パスワード(生年月日),確定日1,確定日2]}
-        第2引数に出力先CSRファイルパスを指定した場合はCSVを出力
-        """
-        if not id_dict:
-            id_dict = self.id_dict
-
-        result_dict = {}
-        # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
-        for k, v in id_dict.items():
-            self.driver.get(config['URL']['TOP_URL'])
-            # フレーム移動
-            self.driver.switch_to.frame("pawae1002")
-            # ログインページへ移動
-            try:
-                self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
-                self.driver.page_source
-                self.driver.find_element(By.NAME,"userId").send_keys(k)
-                self.driver.find_element(By.NAME,"password").send_keys(v[2])
-                time.sleep(5)
-                # ログイン
-                self.driver.find_element(By.XPATH,"//*[contains(@href, 'submitLogin')]").click()
-                # 有効期限が近づいている画面が出た場合
-                if "お知らせ画面" in self.driver.title:
-                    if "利用者カードの有効期限が切れている" in self.driver.page_source:
-                        print("ID:" + k + " 期限切れ")
-                        continue
-                    else:
-                        self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
-                if "伝言表示画面" in self.driver.title:
-                    self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
-                    logging.warn("ID:" + k + " 伝言アリ")
-
-            except UnexpectedAlertPresentException:
-                print("ID:" + k + " 期限切れ")
-                logging.warning("ID:" + k + " 期限切れ")
-                continue
-
-            if "登録メニュー画面" in self.driver.title:
-                try:
-                    # 抽選申し込み確認画面へ
-                    self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gLotWTransLotElectListAction);")
-                    # Beautiful soupで申込み日と時間の取得
-                    # soup = bs(self.driver.page_source)
-                    # found_list = [elem.text for elem in soup.find_all('td', class_='tablelist')]
-                    # TODO: 当選確定済の当選結果 のみ出力させたい
-                    time.sleep(5)
-                except UnexpectedAlertPresentException:
-                    print("ID:" + k + " 申込みなし")
-                    result_dict[k] = [v[0], v[1], v[2], "", ""]
-                    continue
-
-        self.driver.close()
-        # if output_csv_path != "":
-        #     mi.output_csv_from_id_dict(result_dict, output_csv_path)
-
-        return result_dict
-
-    def semiauto_reserv(self, id_dict={}):
-        """
-        IDリストを引数にして
-        半自動抽選申込み. 抽選申込み日の選択と申込みは手動
-        """
-        # 引数でID dictを指定しない場合
-        if not id_dict:
-            id_dict = self.id_dict
-        # 申し込み人数カウント用
-        list_count = 1
-        # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
-        for k, v in id_dict.items():
-            reserv_count = 0
-            self.driver.get(config['URL']['TOP_URL'])
-            print("申し込み " + str(list_count) + "人目/" + str(len(id_dict)) + "人")
-            # フレーム移動
-            self.driver.switch_to.frame("pawae1002")
-            # ログインページへ移動
-            try:
-                self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formdisp : document.formdisp ), gRsvLoginUserAction);")
-                self.driver.page_source
-                self.driver.find_element(By.NAME,"userId").send_keys(k)
-                self.driver.find_element(By.NAME,"password").send_keys(v[2])
-                time.sleep(5)
-                # ログイン
-                self.driver.find_element(By.XPATH,"//*[contains(@href, 'submitLogin')]").click()
-            except UnexpectedAlertPresentException:
-                print("ID:" + k + " 期限切れ")
-                logging.warning("ID:" + k + " 期限切れ")
-                continue
-
-            # 有効期限が近づいている画面が出た場合
-            if "お知らせ画面" in self.driver.title:
-                self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
-                logging.warn("ID:" + k + " 期限が近くなっています")
-
-            if "伝言表示画面" in self.driver.title:
-                self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
-                logging.warn("ID:" + k + " 伝言アリ")
-            logging.info("ID:" + k + " ログイン")
-
-            # time.sleep(0.5)
-            if "登録メニュー画面" in self.driver.title:
-                # 抽選申し込み画面へ
-                self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gLotWSetupLotAcceptAction);")
-                # 利用日
-                self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), lotWTransLotAcceptListAction);")
-                # 種目選択
-                self.driver.execute_script("javascript:sendWTransLotBldGrpAction(((_dom == 3) ? document.layers[disp].document.form1 : document.form1 ), lotWTransLotBldGrpAction, 130);")
-                # 公園選択
-                self.driver.execute_script("javascript:sendBldGrpCd(((_dom == 3) ? document.layers[disp].document.form1 : document.form1 ), lotWTransLotInstGrpAction, 1301270)")
-                while True:
-                    # 申し込み中処理（手動申し込み）
-                    try:
-                        if "東京都スポーツ施設サービス" in self.driver.title:
-                            logging.info("ID:" + k + " ログアウト")
-                            break
-                        elif "抽選申込完了確認画面" in self.driver.title:
-                            reserv_count += 1
-                            soup = bs(self.driver.page_source)
-                            # Beautiful soupで申込み日と時間の取得
-                            foundlist = [elem.text for elem in soup.find_all('td', class_='tablelist')]
-                            print("ID:" + k + " 申込み" + str(reserv_count) + "完了→ " + " ".join(foundlist))
-                            logging.info("ID:" + k + " 申込み" + str(reserv_count) + "完了→ " + " ".join(foundlist))
-                            ## 2日分申込み完了したら次のIDへ
-                            if reserv_count == 2:
-                                break
-                            elif reserv_count ==1:
-                                # 確認 ボタン
-                                self.driver.execute_script("javascript:doAction((_dom == 3) ? document.layers['disp'].document.form1 : document.form1, gLotWInstLotApplyMailNotAction);")
-                                # 利用日から ボタン
-                                self.driver.execute_script("javascript:sendInstGrCd((_dom == 3) ? document.layers['disp'].document.form1 : document.form1, gLotWTransLotInstSrchVacantAction, '12700020' , '9999')")
-                        # ポップアップアラートの表示待ち
-                        WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
-                                                    'Timed out waiting for PA creation ' +
-                                                    'confirmation popup to appear.')
-                        alert = self.driver.switch_to.alert
-                        alert.accept()
-                    except TimeoutException or UnexpectedAlertPresentException:
-                        continue
-            list_count += 1
-        time.sleep(5)
-        self.driver.close()
-        
+    
 def main():
     """
     main
