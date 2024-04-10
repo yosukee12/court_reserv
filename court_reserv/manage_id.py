@@ -42,14 +42,13 @@ class Manage_Id():
                 for row in csv.reader(f):
                     # print(f"{row}")
                     if len(row) > 3 and row[0] != "" and row[3] != "":
-                        # IDとパスワードの長さが8文字以外だと飛ばす
-                        if len(row[0]) == 8 and len(row[3]) == 8:
+                        # IDの長さが8文字以外だと飛ばす
+                        if len(row[0]) == 8:
                             # TODO ここ下手くそだから最適化する
                             if len(row) == 4:
                                 id_dict.update({row[0]:[row[1], row[2], row[3]]})
                             elif len(row) == 5:
-                                id_dict.update({row[0]:[row[1], row[2], row[3], row[4
-                                ]]})
+                                id_dict.update({row[0]:[row[1], row[2], row[3], row[4]]})
                             elif len(row) == 6:
                                 id_dict.update({row[0]:[row[1], row[2], row[3], row[4], row[5]]})
 
