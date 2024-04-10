@@ -330,15 +330,15 @@ class Court_Reserv(tk.Frame):
                     self.driver.execute_script("javascript:doAction(document.form1, gLotWTransLotCancelListAction);")
                     # Beautiful soupで申込み日と時間の取得
                     soup = bs(self.driver.page_source, 'html.parser')
-                    found_list = [elem.text for elem in soup.find_all('td', class_='keep-wide', text=['年', '月', '日', '時', '分'])]
-                    print(found_list)
-                    if len(found_list) == 8:
-                        print("ID:" + k + " 申込み日1→ " + found_list[2] + " " + found_list[3])
-                        print("ID:" + k + " 申込み日2→ " + found_list[6] + " " + found_list[7])
-                        reserv_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3], found_list[6] + " " + found_list[7]]
-                    elif len(found_list) == 4:
-                        print("ID:" + k + " 申込み日1→ " + found_list[2] + " " + found_list[3])
-                        reserv_dict[k] = [v[0], v[1], v[2], found_list[2] + " " + found_list[3], ""]
+                    found_day_list = [elem.text for elem in soup.find_all(string=re.compile("月.*日(.*)"))]
+                    found_time_list = [elem.text for elem in soup.find_all(string=re.compile("時.*分"))]
+                    if len(found_day_list) == 2:
+                        print("ID:" + k + " 申込み日1→ " + found_day_list[0] + " " + found_time_list[0] + found_time_list[1])
+                        print("ID:" + k + " 申込み日2→ " + found_day_list[1] + " " + found_time_list[2]+ found_time_list[3])
+                        reserv_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0] + found_time_list[1], found_day_list[1] + " " + found_time_list[2] + found_time_list[3]]
+                    elif len(found_day_list) == 1:
+                        print("ID:" + k + " 申込み日1→ " + found_day_list[0] + " " + found_time_list[0] + found_time_list[1])
+                        reserv_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0] + found_time_list[1]]
                     else:
                         print("ID:" + k + " 申込みなし")
                         reserv_dict[k] = [v[0], v[1], v[2], "", ""]
@@ -352,6 +352,10 @@ class Court_Reserv(tk.Frame):
             self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
             time.sleep(1)
         self.driver.close()
+
+        if output_csv_path != "":
+            mi.output_csv_from_id_dict(reserv_dict, output_csv_path)
+        return reserv_dict
 
     def check_result(self, id_dict={}, output_csv_path=""):
         """
@@ -517,8 +521,8 @@ class Court_Reserv(tk.Frame):
             # ログアウト
             self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
             time.sleep(1)
-
         self.driver.close()
+
         if output_csv_path != "":
             mi.output_csv_from_id_dict(result_dict, output_csv_path)
 
