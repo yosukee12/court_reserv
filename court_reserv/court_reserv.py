@@ -502,7 +502,7 @@ class Court_Reserv(tk.Frame):
                                 print("ID:" + k + " 確定日→ " + found_day_list[0] + " " + found_time_list[0])
                                 logging.info("ID:" + k + " 予約確定完了→ " + found_day_list[0] + " " + found_time_list[0])
                             elif i == 1:
-                                print("ID:" + k + " 確定日→ " + found_day_list[2] + " " + found_time_list[2])
+                                print("ID:" + k + " 確定日→ " + found_day_list[1] + " " + found_time_list[1])
                                 result_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0],found_day_list[1] + " " + found_time_list[1]]
                                 logging.info("ID:" + k + " 予約確定完了→ " + found_day_list[1] + " " + found_time_list[1])
 
