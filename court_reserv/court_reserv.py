@@ -250,29 +250,26 @@ class Court_Reserv(tk.Frame):
                             # 申込み実行 → rechapcha対策で手動クリックする
                             #self.driver.execute_script("javascript:sendLotApply(document.form1, gLotWInstLotApplyAction, event);")
                             #time.sleep(0.5)
-                            # ポップアップ処理
-                            WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
-                                                    'Timed out waiting for PA creation ' +
-                                                    'confirmation popup to appear.')
-                            alert = self.driver.switch_to.alert
-                            alert.accept()
-
-                            print("ID:" + k + " 申込み" + str(reserv_count) + "完了→ " + " ".join(foundlist))
-                            logging.info("ID:" + k + " 申込み" + str(reserv_count) + "完了→ " + " ".join(foundlist))
-                            time.sleep(2)
+                            while(True):
+                                time.sleep(0.1)
+                                # ポップアップ処理
+                                WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
+                                                        'Timed out waiting for PA creation ' +
+                                                        'confirmation popup to appear.')
+                                alert = self.driver.switch_to.alert
+                                alert.accept()
+                                time.sleep(1)
+                                if "抽選メール送信完了画面" in self.driver.title:
+                                    print("申し込み終わり. reserv_count = " + str(reserv_count))
+                                    break
                             ## 2日分申込み完了したら次のIDへ
                             if reserv_count == 2:
+                                print("次のIDの申込みへ")
                                 break
                             elif reserv_count ==1:
                                 # 続けて申込み
+                                print("続けて申込み")
                                 self.driver.execute_script("javascript:doAction(document.form1, gWOpeTransLotInstSrchVacantAction);")
-                        
-                        # # ポップアップアラートの表示待ち
-                        # WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
-                        #                             'Timed out waiting for PA creation ' +
-                        #                             'confirmation popup to appear.')
-                        # alert = self.driver.switch_to.alert
-                        # alert.accept()
                     except TimeoutException or UnexpectedAlertPresentException:
                         continue
             list_count += 1
