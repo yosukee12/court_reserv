@@ -475,6 +475,7 @@ class Court_Reserv(tk.Frame):
                     # 抽選結果確認画面へ
                     self.driver.execute_script("javascript:doAction(document.form1, gLotWTransLotElectListAction);")
                     # Beautiful soupで申込み日と時間の取得
+                    time.sleep(0.5)
                     soup = bs(self.driver.page_source, 'html.parser')
                     found_day_list = [elem.text for elem in soup.find_all('span', string=re.compile("月.*日(.*)"))]
                     found_time_list = [elem.text for elem in soup.find_all(string=re.compile("時.*分～.*時.*分"))]
