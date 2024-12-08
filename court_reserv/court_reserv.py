@@ -192,7 +192,7 @@ class Court_Reserv(tk.Frame):
         for k, v in id_dict.items():
             reserv_count = 0
             self.driver.get(config['URL']['TOP_URL'])
-            print("申し込み " + str(list_count) + "人目/" + str(len(id_dict)) + "人")
+            print("申し込み " + str(list_count) + "人目/" + str(len(id_dict)) + "人" + v[0])
             try:
                 # ログインページへ移動
                 self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
@@ -226,7 +226,7 @@ class Court_Reserv(tk.Frame):
                 time.sleep(1)
                 # 種目選択2回目（テニス（人工芝））
                 Select(self.driver.find_element(By.ID,"iname")).select_by_value("12700020")
-                while True:
+                while reserv_count < 2:
                     # 申し込み中処理（手動申し込み）
                     time.sleep(0.1)
                     try:
@@ -240,43 +240,34 @@ class Court_Reserv(tk.Frame):
                             foundlist = [elem.text for elem in soup.find_all('td', text=['年', '月', '日', '時', '分'])]
                             if reserv_count == 1:
                                 # 申し込み番号入力（1件目）
-                                time.sleep(0.5)
+                                time.sleep(0.3)
                                 Select(self.driver.find_element(By.ID,"apply")).select_by_value("1-1")
-                                time.sleep(0.5)
+                                time.sleep(0.2)
                             elif reserv_count == 2:
-                                time.sleep(0.5)
+                                time.sleep(0.3)
                                 Select(self.driver.find_element(By.ID,"apply")).select_by_value("2-1")
-                                time.sleep(0.5)
+                                time.sleep(0.2)
                             # 申込み実行 → rechapcha対策で手動クリックする
                             #self.driver.execute_script("javascript:sendLotApply(document.form1, gLotWInstLotApplyAction, event);")
                             #time.sleep(0.5)
-                            while(True):
-                                time.sleep(0.1)
-                                # ポップアップ処理
-                                WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
-                                                        'Timed out waiting for PA creation ' +
-                                                        'confirmation popup to appear.')
-                                alert = self.driver.switch_to.alert
-                                alert.accept()
-                                time.sleep(1)
-                                if "抽選メール送信完了画面" in self.driver.title:
-                                    print("申し込み終わり. reserv_count = " + str(reserv_count))
-                                    break
-                            ## 2日分申込み完了したら次のIDへ
-                            if reserv_count == 2:
-                                print("次のIDの申込みへ")
-                                break
-                            elif reserv_count ==1:
-                                # 続けて申込み
-                                print("続けて申込み")
-                                self.driver.execute_script("javascript:doAction(document.form1, gWOpeTransLotInstSrchVacantAction);")
+                            while not "抽選メール送信完了画面" in self.driver.title:
+                                try:
+                                    # ポップアップ処理
+                                    WebDriverWait(self.driver, 5).until(EC.alert_is_present(),
+                                                            'Timed out waiting for PA creation ' +
+                                                            'confirmation popup to appear.')
+                                    alert = self.driver.switch_to.alert
+                                    alert.accept()
+                                except TimeoutException or UnexpectedAlertPresentException:
+                                    continue
+                            print(reserv_count)
                     except TimeoutException or UnexpectedAlertPresentException:
                         continue
             list_count += 1
-            time.sleep(1)
+            time.sleep(0.5)
             # ログアウト
             self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
-            time.sleep(1)
+            time.sleep(0.5)
         self.driver.close()
 
     def check_lottery(self, id_dict={}, output_csv_path=""):
