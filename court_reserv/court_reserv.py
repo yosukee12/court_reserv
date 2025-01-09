@@ -228,7 +228,7 @@ class Court_Reserv(tk.Frame):
                 Select(self.driver.find_element(By.ID,"iname")).select_by_value("12700020")
                 while reserv_count < 2:
                     # 申し込み中処理（手動申し込み）
-                    time.sleep(0.1)
+                    time.sleep(0.5)
                     try:
                         if "東京都スポーツ施設サービス" in self.driver.title:
                             logging.info("ID:" + k + " ログアウト")
@@ -237,7 +237,7 @@ class Court_Reserv(tk.Frame):
                             reserv_count += 1
                             soup = bs(self.driver.page_source, 'html.parser')
                             # Beautiful soupで申込み日と時間の取得
-                            foundlist = [elem.text for elem in soup.find_all('td', text=['年', '月', '日', '時', '分'])]
+                            foundlist = [elem.string for elem in soup.find_all('td', string=['年', '月', '日', '時', '分'])]
                             if reserv_count == 1:
                                 # 申し込み番号入力（1件目）
                                 time.sleep(0.3)
@@ -252,15 +252,17 @@ class Court_Reserv(tk.Frame):
                             #time.sleep(0.5)
                             while not "抽選メール送信完了画面" in self.driver.title:
                                 try:
+                                    print("loop2: count = " + str(reserv_count) + ": title = " + self.driver.title)
                                     # ポップアップ処理
-                                    WebDriverWait(self.driver, 5).until(EC.alert_is_present(),
+                                    WebDriverWait(self.driver, 60).until(EC.alert_is_present(),
                                                             'Timed out waiting for PA creation ' +
                                                             'confirmation popup to appear.')
                                     alert = self.driver.switch_to.alert
                                     alert.accept()
+                                    time.sleep(0.3)
                                 except TimeoutException or UnexpectedAlertPresentException:
                                     continue
-                            print(reserv_count)
+                            print("reserved: ID = " + k + ", reserv_count = " + str(reserv_count) + ", title = " + self.driver.title)
                     except TimeoutException or UnexpectedAlertPresentException:
                         continue
             list_count += 1
