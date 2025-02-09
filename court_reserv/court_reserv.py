@@ -252,17 +252,17 @@ class Court_Reserv(tk.Frame):
                             #time.sleep(0.5)
                             while not "抽選メール送信完了画面" in self.driver.title:
                                 try:
-                                    print("loop2: count = " + str(reserv_count) + ": title = " + self.driver.title)
+                                    #print("loop2: count = " + str(reserv_count) + ": title = " + self.driver.title)
                                     # ポップアップ処理
                                     WebDriverWait(self.driver, 60).until(EC.alert_is_present(),
                                                             'Timed out waiting for PA creation ' +
                                                             'confirmation popup to appear.')
                                     alert = self.driver.switch_to.alert
                                     alert.accept()
-                                    time.sleep(0.3)
+                                    time.sleep(0.5)
                                 except TimeoutException or UnexpectedAlertPresentException:
                                     continue
-                            print("reserved: ID = " + k + ", reserv_count = " + str(reserv_count) + ", title = " + self.driver.title)
+                            print("reserved: ID = " + k + ", reserv_count = " + str(reserv_count))
                     except TimeoutException or UnexpectedAlertPresentException:
                         continue
             list_count += 1
