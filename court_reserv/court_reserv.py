@@ -259,7 +259,11 @@ class Court_Reserv(tk.Frame):
                                                             'confirmation popup to appear.')
                                     alert = self.driver.switch_to.alert
                                     alert.accept()
-                                    time.sleep(0.5)
+                                    #time.sleep(0.5)
+                                    WebDriverWait(self.driver, 0.3).until(EC.alert_is_present(),
+                                                            'Timed out waiting for PA creation ' +
+                                                            'confirmation popup to appear.')
+                                    time.sleep(0.3)
                                 except TimeoutException or UnexpectedAlertPresentException:
                                     continue
                             print("reserved: ID = " + k + ", reserv_count = " + str(reserv_count))
