@@ -219,13 +219,31 @@ class Court_Reserv(tk.Frame):
             if "ホーム画面" in self.driver.title:
                 # 抽選申し込み画面へ
                 self.driver.execute_script("javascript:doAction(document.form1, gLotWOpeLotSearchAction);")
-                # 種目選択
+                # 種目選択（テニス（人工芝））
                 self.driver.execute_script("javascript:doLotEntry('130');")
+
                 # 公園選択（府中の森公園）
                 Select(self.driver.find_element(By.ID,"bname")).select_by_value("1301270")
                 time.sleep(1)
                 # 種目選択2回目（テニス（人工芝））
                 Select(self.driver.find_element(By.ID,"iname")).select_by_value("12700020")
+
+                # # 公園選択（大井ふ頭Bオムニ）
+                # Select(self.driver.find_element(By.ID,"bname")).select_by_value("1301315")
+                # time.sleep(1)
+                # # 種目選択2回目（テニス（人工芝））
+                # Select(self.driver.find_element(By.ID,"iname")).select_by_value("13150110")
+
+
+                # # 種目選択（テニス（ハード））
+                # self.driver.execute_script("javascript:doLotEntry('120');")
+
+                # # 公園選択（大井ふ頭Bハード）
+                # Select(self.driver.find_element(By.ID,"bname")).select_by_value("1201315")
+                # time.sleep(1)
+                # # 種目選択2回目（テニス（ハード））
+                # Select(self.driver.find_element(By.ID,"iname")).select_by_value("13150050")
+
                 while reserv_count < 2:
                     # 申し込み中処理（手動申し込み）
                     time.sleep(0.5)
@@ -260,7 +278,7 @@ class Court_Reserv(tk.Frame):
                                     alert = self.driver.switch_to.alert
                                     alert.accept()
                                     #time.sleep(0.5)
-                                    WebDriverWait(self.driver, 0.3).until(EC.alert_is_present(),
+                                    WebDriverWait(self.driver, 1).until(EC.alert_is_present(),
                                                             'Timed out waiting for PA creation ' +
                                                             'confirmation popup to appear.')
                                     time.sleep(0.3)
