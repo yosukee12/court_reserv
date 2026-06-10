@@ -221,10 +221,18 @@ class Court_Reserv(tk.Frame):
                 self.driver.execute_script("javascript:doAction(document.form1, gLotWOpeLotSearchAction);")
                 # 種目選択（テニス（人工芝））
                 self.driver.execute_script("javascript:doLotEntry('130');")
+                time.sleep(1)
 
                 # 公園選択（府中の森公園）
                 Select(self.driver.find_element(By.ID,"bname")).select_by_value("1301270")
-                time.sleep(1)
+                # time.sleep(1)
+                self.driver.execute_script("changeBname(document.form1);")
+
+                wait = WebDriverWait(self.driver, 10)
+                wait.until(lambda d: any(
+                    opt.get_attribute("value") == "12700020"
+                    for opt in Select(d.find_element(By.ID, "iname")).options
+                    ))
                 # 種目選択2回目（テニス（人工芝））
                 Select(self.driver.find_element(By.ID,"iname")).select_by_value("12700020")
 
