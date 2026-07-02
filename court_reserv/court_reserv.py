@@ -9,13 +9,23 @@ try:
     from .manage_id import Manage_Id as mi
     from .config import get_debug_output_dir, load_config
     from .browser import BrowserSession, LoginService, NavigationService
-    from .services import LotteryService, ReservationService, AvailabilityService
+    from .services import (
+        LotteryService,
+        ReservationService,
+        AvailabilityService,
+        IdManagerService,
+    )
 except Exception:
     # allow running the module as a script (no package context)
     from manage_id import Manage_Id as mi
     from config import get_debug_output_dir, load_config
     from browser import BrowserSession, LoginService, NavigationService
-    from services import LotteryService, ReservationService, AvailabilityService
+    from services import (
+        LotteryService,
+        ReservationService,
+        AvailabilityService,
+        IdManagerService,
+    )
 import tkinter as tk
 from tkinter import ttk, messagebox
 from functools import partial
@@ -96,6 +106,10 @@ class Court_Reserv(tk.Frame):
             navigation_service=self.navigation_service,
             logger=logging,
             get_debug_output_dir=get_debug_output_dir,
+            sleep_func=time.sleep,
+        )
+        self.id_manager_service = IdManagerService(
+            config=config,
             sleep_func=time.sleep,
         )
         self.driver = None
@@ -258,11 +272,11 @@ class Court_Reserv(tk.Frame):
         """
         抽選申込みボタンが押された時の処理
         """
-        self.semiauto_reserv(mi.get_id_dict_from_csv(self.entry_input_csv.get()))
+        self.semiauto_reserv(self.id_manager_service.load_accounts(self.entry_input_csv.get()))
 
     def start_reservation_button(self):
         """Mode-aware handler for reservation button: calls semi or full auto based on selection."""
-        id_dict = mi.get_id_dict_from_csv(self.entry_input_csv.get())
+        id_dict = self.id_manager_service.load_accounts(self.entry_input_csv.get())
         mode = self.mode_var.get() if getattr(self, 'mode_var', None) is not None else 'semi'
         if mode == 'full':
             # run full auto
@@ -274,13 +288,13 @@ class Court_Reserv(tk.Frame):
         """
         抽選申込み状況確認ボタンが押された時の処理
         """
-        self.check_lottery(mi.get_id_dict_from_csv(self.entry_input_csv.get()), check_lottery_csv)
+        self.check_lottery(self.id_manager_service.load_accounts(self.entry_input_csv.get()), check_lottery_csv)
 
     def check_result_button(self):
         """
         抽選申込み結果確認ボタンが押された時の処理
         """
-        self.check_result(mi.get_id_dict_from_csv(self.entry_input_csv.get()), check_result_csv)
+        self.check_result(self.id_manager_service.load_accounts(self.entry_input_csv.get()), check_result_csv)
 
     def determine_button(self):
         """
@@ -292,15 +306,16 @@ class Court_Reserv(tk.Frame):
         """
         抽選申込み結果確認ボタンが押された時の処理
         """
-        self.check_reserv(mi.get_id_dict_from_csv(self.entry_result_csv.get()), check_reserv_csv)
+        self.check_reserv(self.id_manager_service.load_accounts(self.entry_result_csv.get()), check_reserv_csv)
 
     def check_id_button(self):
         """
         ID有効確認ボタンが押された時の処理
         """
-        alive_id_list, dead_id_list = mi.get_alive_dead_id_dict(mi.get_id_dict_from_csv(self.entry_check_id_csv.get()))
-        mi.output_csv_from_id_dict(alive_id_list, alive_id_list_csv)
-        mi.output_csv_from_id_dict(dead_id_list, dead_id_list_csv)
+        id_dict = self.id_manager_service.load_accounts(self.entry_check_id_csv.get())
+        alive_id_list, dead_id_list = self.id_manager_service.check_account_validity(id_dict)
+        self.id_manager_service.save_accounts(alive_id_list, alive_id_list_csv)
+        self.id_manager_service.save_accounts(dead_id_list, dead_id_list_csv)
 
     # ここからCourt Reservメソッド
     def semiauto_reserv(self, id_dict={}):

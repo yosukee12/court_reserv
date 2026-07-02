@@ -61,6 +61,7 @@ court_reserv/
 - Lottery Service は抽選申込み、抽選申込み確認、抽選結果確認の業務フローを集約し、予約確定や空き確認は含めない
 - Reservation Service は予約確定、予約確認の業務フローを集約し、抽選処理や空き確認は含めない
 - Availability Service は空き確認、空き枠収集の業務フローを集約し、抽選処理や予約確定は含めない
+- IdManager Service は ID CSV 読み込み、CSV 書き出し、ID 有効確認を集約し、既存 `Manage_Id` 互換を維持する
 
 ## UI Entrypoint Policy
 
@@ -104,6 +105,12 @@ court_reserv/
 - 空き確認、空き枠収集は `services/availability.py` に集約する
 - `Court_Reserv` では Availability Service を呼び出すだけに留め、抽選処理、予約確定処理、ID 管理処理は維持する
 - 自動予約機能や予約戦略エンジンの追加は別 Issue で扱う
+
+## IdManager Service Policy
+
+- ID CSV 読み込み、CSV 書き出し、ID 有効確認は `services/id_manager.py` に整理する
+- `manage_id.py` は既存互換ラッパーとして残し、必要に応じて `IdManagerService` へ委譲する
+- CSV フォーマットは変更しない
 
 ## Automation Policy
 

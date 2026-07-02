@@ -10,5 +10,11 @@ Issue 0003 only documents the boundary and does not move existing logic.
 from .lottery import LotteryService
 from .reservation import ReservationService
 from .availability import AvailabilityService
+from .id_manager import IdManagerService
 
-__all__ = ["LotteryService", "ReservationService", "AvailabilityService"]
+__all__ = [
+    "LotteryService",
+    "ReservationService",
+    "AvailabilityService",
+    "IdManagerService",
+]
