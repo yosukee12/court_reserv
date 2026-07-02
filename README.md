@@ -2,7 +2,7 @@
 
 東京都スポーツ施設予約システム向けの個人利用ツールです。現在の実装は Python + Selenium + Tkinter を中心に構成されており、抽選申込み、抽選結果確認、予約確定、空き枠確認を補助します。
 
-Phase 1 では、設定管理、ドキュメント整備、Browser Layer / Service Layer / Model Foundation、Selenium 4 移行までを完了しました。Phase 2 では、空き施設予約よりも先に、抽選申込み自動化の dry-run、抽選申込み画面での候補選択、確認付き送信を優先して進めます。
+Phase 1 では、設定管理、ドキュメント整備、Browser Layer / Service Layer / Model Foundation、Selenium 4 移行までを完了しました。Phase 2 では、空き施設予約よりも先に、抽選申込み自動化の dry-run、抽選申込み画面での候補選択、確認付き送信、抽選結果確認を優先して進めます。
 
 ## Scope
 
@@ -61,6 +61,8 @@ scripts/      将来の補助スクリプト置き場
 - Phase 2 dry-run: `python scripts/lottery_automation_dry_run.py --preferences config/preferences.example.yaml --dry-run`
 - Lottery entry workflow: `python scripts/lottery_entry_workflow.py --preferences config/preferences.example.yaml`
   候補選択後に内容を表示し、`yes` と入力した場合のみ最終送信します
+- Lottery result workflow: `python scripts/lottery_result_workflow.py`
+  抽選結果を一覧表示し、`output/lottery_automation/` に JSON / CSV 保存します
 
 `.env` では次のような値を設定できます。
 
@@ -91,6 +93,7 @@ Selenium 4.6 以降では Selenium Manager が ChromeDriver の検出と取得�
 - [x] Phase 1 wrap-up
 - [x] Lottery automation dry-run and entry selection workflow
 - [x] Lottery submission confirmation workflow
+- [x] Lottery result workflow
 - [ ] Vacant facility reservation improvements
 - [ ] Notification and operations
 
@@ -100,6 +103,7 @@ Selenium 4.6 以降では Selenium Manager が ChromeDriver の検出と取得�
 - 希望条件と順位付けの整備
 - 抽選申込みワークフローの候補自動選択
 - 抽選申込み前の確認付き送信
+- 抽選結果確認 workflow
 - 空き施設予約は低優先度
 - 通知とスケジューラは Phase 2 の対象外
 

@@ -91,6 +91,8 @@ Issue 0022 では、上記 dry-run 結果を使って抽選申込み画面で候
 
 Issue 0023 では、Issue 0022 の workflow に対話式確認を追加し、ユーザーが `yes` と入力した場合のみ既存 `LotteryService` の送信処理を実行する。完全自動送信フラグは追加しない。
 
+Issue 0024 では、既存 `LoginService`、`NavigationService`、`LotteryService` を利用して抽選結果確認 workflow を追加する。抽選結果画面から行を取得し、当選 / 落選 / 不明を分類して JSON / CSV 保存するが、予約確定は行わない。
+
 ## Lottery Guide
 
 - 抽選申込みは利用前月 1 日 0 時から 10 日 23 時 59 分まで

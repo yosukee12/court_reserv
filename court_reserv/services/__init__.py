@@ -15,6 +15,7 @@ from .lottery_automation import LotteryAutomationDryRunService, SlotCollectionAd
 from .auto_reservation import AutoReservationDryRunService
 from .slot_ranking import RankedSlot, SlotRankingService
 from .lottery_entry_workflow import LotteryEntryWorkflowService
+from .lottery_result_workflow import LotteryResultWorkflowService
 
 __all__ = [
     "LotteryService",
@@ -27,4 +28,5 @@ __all__ = [
     "LotteryAutomationDryRunService",
     "AutoReservationDryRunService",
     "LotteryEntryWorkflowService",
+    "LotteryResultWorkflowService",
 ]

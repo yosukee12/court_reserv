@@ -155,6 +155,7 @@
 - Issue 0021 では実際の抽選申込み送信を行わず、候補抽出と順位付けだけを dry-run で確認する
 - Issue 0022 では `LoginService`、`NavigationService`、`LotteryService` を再利用し、抽選申込み画面で候補を自動選択するところまでを対象とする
 - Issue 0023 では候補表示と対話式確認を追加し、`yes` 入力時のみ抽選申込みを送信する
+- Issue 0024 では抽選結果確認画面の結果行を取得・分類・保存し、予約確定には進まない
 
 ## Metadata Policy
 
