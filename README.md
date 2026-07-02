@@ -11,7 +11,6 @@
 ## Current Entry Points
 
 - GUI: `python court_reserv/court_reserv.py`
-- 検証用補助スクリプト: `python scripts/run_collect_slots.py`
 
 ## Directory Overview
 
@@ -28,16 +27,16 @@ docs/
 tests/        テスト
 logs/         ログ出力先
 output/       CSV 等の出力先
-scripts/      補助スクリプト
+    scripts/      将来の補助スクリプト置き場
 ```
 
 ## Setup
 
 1. Python と Google Chrome を用意します
 2. `requirements.txt` を元に依存関係をインストールします
-3. `config.example.ini` を参考にローカル用の `court_reserv/config.ini` を作成します
+3. リポジトリ同梱の `court_reserv/config.ini` を安全なベース設定として確認します
 4. 必要に応じて `config.local.ini` または `.env` を作成し、ローカル固有の設定や認証情報を上書きします
-5. ChromeDriver のパスと出力先を環境に合わせて設定します
+5. ChromeDriver のパスなど、環境依存の設定をローカルで補完します
 
 `.env` では次のような値を設定できます。
 
@@ -54,9 +53,13 @@ COURT_RESERV_LOG_LEVEL=INFO
 ## Current Status
 
 - [x] Project foundation
-- [ ] Security and configuration cleanup
+- [x] Security and configuration cleanup
+- [x] Architecture foundation
+- [x] Legacy cleanup
+- [x] Project metadata cleanup
 - [ ] Selenium 4 migration
-- [ ] Architecture refactoring
+- [ ] Court_Reserv split
+- [ ] Service layer extraction
 - [ ] Reservation strategy engine
 - [ ] Auto reservation
 - [ ] Notification and operations

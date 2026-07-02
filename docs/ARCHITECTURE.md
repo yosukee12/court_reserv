@@ -11,12 +11,11 @@
 - 空き枠収集
 - CSV 出力
 
-補助的に `court_reserv/manage_id.py` が ID CSV の読込・書出しと有効確認を担い、`scripts/run_collect_slots.py` が開発・補助運用向けの検証スクリプトを提供しています。
+補助的に `court_reserv/manage_id.py` が ID CSV の読込・書出しと有効確認を担っています。検証用補助スクリプトは Issue 0005 で削除され、現在の正式な起動パスは GUI のみです。
 
 主なエントリーポイント:
 
 - `court_reserv/court_reserv.py`
-- `scripts/run_collect_slots.py`
 
 ## Future Architecture
 

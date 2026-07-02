@@ -17,7 +17,8 @@
 
 - 実際の認証情報をドキュメントやサンプル設定に書かない
 - 認証情報はコードへ直書きせず、`config.local.ini` または `.env` で管理する
-- `config.ini`, `config.local.ini`, `.env`, ログ, CSV, debug HTML は Git 管理対象にしない
+- `court_reserv/config.ini` は秘密情報を含まない安全なベース設定だけを Git 管理する
+- `config.local.ini`, `.env`, ログ, CSV, debug HTML は Git 管理対象にしない
 - 画面ダンプには個人情報が含まれる前提で扱う
 - CAPTCHA / reCAPTCHA の回避実装は行わない
 

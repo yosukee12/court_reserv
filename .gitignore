@@ -13,7 +13,6 @@ env/
 .env
 config.ini
 config.local.ini
-court_reserv/config.ini
 
 # Generated logs and outputs
 *.csv
