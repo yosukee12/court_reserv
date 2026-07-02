@@ -315,14 +315,14 @@ class AvailabilityService:
             driver.switch_to.frame("pawae1002")
             self.navigation_service.go_to_vacant_search(driver)
             try:
-                driver.find_element_by_name("monthGif" + month).click()
+                driver.find_element(By.NAME, "monthGif" + month).click()
             except Exception:
                 print("対象月が存在しません")
                 self.browser_session.safe_quit(driver)
                 return None
-            driver.find_element_by_name("weektype5").click()
+            driver.find_element(By.NAME, "weektype5").click()
             self.navigation_service.select_weekly_vacant_conditions(driver)
-            driver.find_element_by_name("gifName23").click()
+            driver.find_element(By.NAME, "gifName23").click()
             print(driver.page_source)
             return driver.page_source
         finally:

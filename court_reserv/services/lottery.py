@@ -161,7 +161,10 @@ class LotteryService:
                                     + ", reserv_count = "
                                     + str(reserv_count)
                                 )
-                        except TimeoutException or UnexpectedAlertPresentException:
+                        except (
+                            TimeoutException,
+                            UnexpectedAlertPresentException,
+                        ):
                             continue
                 list_count += 1
                 self.sleep_func(0.5)

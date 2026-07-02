@@ -4,6 +4,7 @@
 import time
 
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.select import Select
 
 
@@ -36,10 +37,10 @@ class NavigationService:
         court_value="12700020",
     ):
         self.execute_script(driver, "javascript:doLotEntry('130');")
-        self.sleep_func(1)
+        wait = self.wait_factory(driver, 10)
+        wait.until(EC.presence_of_element_located((By.ID, "bname")))
         Select(driver.find_element(By.ID, "bname")).select_by_value(park_value)
         self.execute_script(driver, "changeBname(document.form1);")
-        wait = self.wait_factory(driver, 10)
         wait.until(
             lambda d: any(
                 opt.get_attribute("value") == court_value

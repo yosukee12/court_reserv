@@ -189,17 +189,17 @@ class Court_Reserv(tk.Frame):
         self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formWTransInstSrchVacantAction : document.formWTransInstSrchVacantAction ), gRsvWTransInstSrchVacantAction);")
         self.driver.execute_script("javascript:doComplexSearchAction((_dom == 3) ? document.layers['disp'].document.form1 : document.form1, gRsvWTransInstSrchMultipleAction);")
         try:
-            self.driver.find_element_by_name("monthGif" + month).click() # 月選択
+            self.driver.find_element(By.NAME, "monthGif" + month).click() # 月選択
         except:
             print("対象月が存在しません")
             self.driver.quit()
             exit()
         # 曜日選択 土曜固定
-        self.driver.find_element_by_name("weektype5").click()
+        self.driver.find_element(By.NAME, "weektype5").click()
         self.driver.execute_script("javaScript: sendSelectWeekNum2((_dom == 3) ? document.layers['disp'].document.form1: document.form1, gRsvWTransInstSrchPpsAction);")
         self.driver.execute_script("javascript:doTransInstSrchMultipleAction((_dom == 3) ? document.layers['disp'].document.form1 : document.form1, gRsvWTransInstSrchMultipleAction, '1000', '1030');")
         # 場所選択 府中の森固定
-        self.driver.find_element_by_name("gifName23").click()
+        self.driver.find_element(By.NAME, "gifName23").click()
         self.driver.execute_script("javascript:sendSelectWeekNum((_dom == 3) ? document.layers['disp'].document.form1 : document.form1, gRsvWGetInstSrchInfAction);")
         print(self.driver.page_source)
         # TODO ページの保存
@@ -594,7 +594,10 @@ class Court_Reserv(tk.Frame):
                                                     'confirmation popup to appear.')
                         alert = self.driver.switch_to.alert
                         alert.accept()
-                    except TimeoutException or UnexpectedAlertPresentException:
+                    except (
+                        TimeoutException,
+                        UnexpectedAlertPresentException,
+                    ):
                         continue
             list_count += 1
         time.sleep(5)

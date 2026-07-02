@@ -75,7 +75,14 @@ court_reserv/
 
 - WebDriver の生成、ChromeOptions の設定、`WebDriverWait` の生成、終了処理は `browser/session.py` に集約する
 - `Court_Reserv` では Browser Session を呼び出すだけに留め、ログインや予約の本体ロジックはそのまま維持する
-- `find_element_by_*` の置換や Selenium 4 対応は別 Issue で扱う
+- `find_element_by_*` の置換や Selenium 4 対応は専用 Issue で段階的に行い、業務フローは変えない
+
+## Selenium 4 Migration Policy
+
+- Selenium 4 移行では `find_element(By.*)` 形式への置換を優先し、画面遷移や業務仕様は変更しない
+- `WebDriverWait` へ安全に置換できる待機だけを対象とし、意図が不明な `time.sleep()` は無理に変更しない
+- `except A or B:` のような不正確な例外処理は tuple 形式へ修正する
+- CAPTCHA / reCAPTCHA の手動認証待機方針は維持する
 
 ## Login Service Policy
 

@@ -68,6 +68,13 @@
 - `WebDriverWait` の生成は共通ヘルパーを経由し、タイムアウト値だけを各処理側から渡す
 - Browser Session 分離 Issue では、操作順序や DOM 選択式は変更しない
 
+## Selenium 4 Migration
+
+- Selenium 4 移行では `find_element_by_*` を `find_element(By.*)` へ置換する
+- 例外を複数扱う場合は `except (A, B):` を使い、`except A or B:` は使わない
+- `time.sleep()` は安全に条件化できる箇所だけ `WebDriverWait` へ置換する
+- ページ描画や外部システム都合で意図が不明な待機は残し、理由を Completion Report に記載する
+
 ## Login Service
 
 - Selenium のログイン処理と CAPTCHA / reCAPTCHA 手動待機は `court_reserv/browser/login.py` に集約する
