@@ -428,87 +428,108 @@ class LotteryService:
             result[slot] = ok
 
         if submit and any(result.values()):
-            try:
-                try:
-                    self.navigation_service.go_to_temp_apply(driver)
-                except Exception:
-                    try:
-                        driver.find_element(By.ID, "btn-go").click()
-                    except Exception:
-                        pass
+            self.submit_selected_slots(
+                driver,
+                success_count=sum(1 for value in result.values() if value),
+                wait_alert_seconds=wait_alert_seconds,
+            )
 
-                success_count = sum(1 for value in result.values() if value)
-                applied = 0
-                for _ in range(success_count):
+        return result
+
+    def submit_selected_slots(
+        self,
+        driver,
+        success_count,
+        wait_alert_seconds=10,
+    ):
+        """Submit already selected lottery slots from the current page."""
+        summary = {
+            "requested_count": int(success_count),
+            "submitted_count": 0,
+            "completed": False,
+        }
+        if not driver or success_count <= 0:
+            return summary
+
+        try:
+            try:
+                self.navigation_service.go_to_temp_apply(driver)
+            except Exception:
+                try:
+                    driver.find_element(By.ID, "btn-go").click()
+                except Exception:
+                    pass
+
+            applied = 0
+            for _ in range(success_count):
+                try:
                     try:
                         self._get_wait(driver, wait_alert_seconds).until(
                             lambda d: "申込内容確認画面" in d.title
                         )
                     except Exception:
                         self.sleep_func(0.5)
+
+                    applied += 1
+                    sel_val = f"{applied}-1"
                     try:
-                        applied += 1
-                        sel_val = f"{applied}-1"
+                        Select(driver.find_element(By.ID, "apply")).select_by_value(
+                            sel_val
+                        )
+                    except Exception:
+                        self.logger.warning("apply select not found to set %s", sel_val)
+                    self.sleep_func(0.2)
+                    try:
                         try:
-                            Select(driver.find_element(By.ID, "apply")).select_by_value(
-                                sel_val
-                            )
-                        except Exception:
-                            self.logger.warning(
-                                "apply select not found to set %s", sel_val
-                            )
-                        self.sleep_func(0.2)
-                        try:
-                            try:
-                                if self.login_service.detect_captcha(driver):
-                                    ok = self.login_service.wait_for_manual_captcha(
-                                        driver
+                            if self.login_service.detect_captcha(driver):
+                                ok = self.login_service.wait_for_manual_captcha(driver)
+                                if not ok:
+                                    self.logger.warning(
+                                        "User cancelled captcha handling; aborting apply loop"
                                     )
-                                    if not ok:
-                                        self.logger.warning(
-                                            "User cancelled captcha handling; aborting apply loop"
-                                        )
-                                        break
-                            except Exception:
-                                pass
-                            self.navigation_service.execute_script(
-                                driver,
-                                "javascript:sendLotApply(document.form1, gLotWInstLotApplyAction, event);",
-                            )
-                        except Exception:
-                            try:
-                                driver.find_element(By.ID, "btn-apply").click()
-                            except Exception:
-                                pass
-
-                        try:
-                            self._get_wait(driver, wait_alert_seconds).until(
-                                EC.alert_is_present()
-                            )
-                            alert = driver.switch_to.alert
-                            alert_text = alert.text
-                            alert.accept()
-                            self.logger.info(
-                                "Accepted confirmation alert: %s", alert_text
-                            )
-                        except Exception:
-                            self.logger.info(
-                                "No confirmation alert appeared for apply %s", sel_val
-                            )
-
-                        try:
-                            self._get_wait(driver, 10).until(
-                                lambda d: "抽選メール送信完了画面" in d.title
-                            )
+                                    break
                         except Exception:
                             pass
+                        self.navigation_service.execute_script(
+                            driver,
+                            "javascript:sendLotApply(document.form1, gLotWInstLotApplyAction, event);",
+                        )
                     except Exception:
-                        self.logger.exception("Error during confirmation/apply loop")
-                        break
-            except Exception:
-                self.logger.exception("Error during submit")
+                        try:
+                            driver.find_element(By.ID, "btn-apply").click()
+                        except Exception:
+                            pass
 
-        return result
+                    try:
+                        self._get_wait(driver, wait_alert_seconds).until(
+                            EC.alert_is_present()
+                        )
+                        alert = driver.switch_to.alert
+                        alert_text = alert.text
+                        alert.accept()
+                        self.logger.info(
+                            "Accepted confirmation alert: %s", alert_text
+                        )
+                    except Exception:
+                        self.logger.info(
+                            "No confirmation alert appeared for apply %s", sel_val
+                        )
+
+                    try:
+                        self._get_wait(driver, 10).until(
+                            lambda d: "抽選メール送信完了画面" in d.title
+                        )
+                    except Exception:
+                        pass
+                    summary["submitted_count"] = applied
+                except Exception:
+                    self.logger.exception("Error during confirmation/apply loop")
+                    break
+        except Exception:
+            self.logger.exception("Error during submit")
+
+        summary["completed"] = summary["submitted_count"] == summary["requested_count"]
+        return summary
 
     def check_lottery(self, id_dict, output_csv_path=""):
         """Check current lottery entries and optionally save CSV."""

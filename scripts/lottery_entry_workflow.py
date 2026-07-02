@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Run lottery entry candidate selection up to the pre-submit screen."""
+"""Run lottery entry candidate selection with manual submission confirmation."""
 
 from __future__ import annotations
 
@@ -42,10 +42,22 @@ def _output_id_dict(id_dict, output_file_path):
     return output_file_path
 
 
+def _confirm_submission(result):
+    selected_count = sum(
+        1 for selected in result.get("selection_result", {}).values() if selected
+    )
+    if selected_count <= 0:
+        return ""
+    print(
+        "Submit selected lottery entries? Type 'yes' to submit. Any other input will cancel."
+    )
+    return input("Submit? [yes/no]: ").strip()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Select ranked lottery entry candidates on the lottery page without final submission."
+            "Select ranked lottery entry candidates on the lottery page and submit only after explicit 'yes' confirmation."
         )
     )
     parser.add_argument(
@@ -121,6 +133,34 @@ def main() -> int:
         logger=logger,
     )
 
+    def preview_result(result):
+        source_csv = result.get("source_csv")
+        if source_csv:
+            print(f"Candidate source: {source_csv}")
+        print(f"Credential source: {result.get('credential_source')}")
+        print(f"Target user ID: {result.get('user_id')}")
+        if result.get("account_label"):
+            print(f"Account label: {result.get('account_label')}")
+        print(f"Total candidates: {result.get('total_slots', 0)}")
+
+        selected_candidates = result.get("selected_candidates", [])
+        if not selected_candidates:
+            print("No lottery entry candidates were selected.")
+            return
+
+        print("Selected lottery entry candidates:")
+        for index, ranked in enumerate(selected_candidates, start=1):
+            reasons = ", ".join(ranked.reasons) if ranked.reasons else "no preference match"
+            print(
+                f"{index}. score={ranked.score} slot={workflow_service._to_slot_text(ranked)} reasons={reasons}"
+            )
+
+        selection_result = result.get("selection_result", {})
+        if selection_result:
+            print("Lottery page selection result:")
+            for slot_text, selected in selection_result.items():
+                print(f"- {slot_text}: {'selected' if selected else 'not selected'}")
+
     search_dirs = [
         get_output_base_path(),
         get_output_base_path() / "debug_pages",
@@ -133,6 +173,8 @@ def main() -> int:
         id_csv=args.id_csv,
         account_id=args.account_id,
         max_select=args.max_select,
+        display_result_callback=preview_result,
+        confirm_submit_callback=_confirm_submission,
     )
     workflow_service.print_result(result)
 

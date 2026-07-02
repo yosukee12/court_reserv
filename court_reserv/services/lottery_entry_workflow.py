@@ -110,6 +110,8 @@ class LotteryEntryWorkflowService:
         id_csv=None,
         account_id=None,
         max_select=2,
+        display_result_callback=None,
+        confirm_submit_callback=None,
     ):
         dry_run_result = self.dry_run_service.run(
             preference=preference,
@@ -130,6 +132,13 @@ class LotteryEntryWorkflowService:
             "selected_candidates": selected_candidates,
             "skipped_duplicate_datetimes": skipped_duplicates,
             "selection_result": {},
+            "submission_requested": False,
+            "confirmation_response": None,
+            "submission_result": {
+                "requested_count": 0,
+                "submitted_count": 0,
+                "completed": False,
+            },
             "submitted": False,
         }
 
@@ -158,6 +167,23 @@ class LotteryEntryWorkflowService:
                 submit=False,
             )
             result["selection_result"] = selection_result
+            if display_result_callback is not None:
+                display_result_callback(result)
+
+            if confirm_submit_callback is not None:
+                confirmation_response = confirm_submit_callback(result)
+                result["confirmation_response"] = confirmation_response
+                result["submission_requested"] = str(confirmation_response).strip().lower() == "yes"
+                if result["submission_requested"]:
+                    selected_count = sum(
+                        1 for selected in selection_result.values() if selected
+                    )
+                    submission_result = self.lottery_service.submit_selected_slots(
+                        driver,
+                        success_count=selected_count,
+                    )
+                    result["submission_result"] = submission_result
+                    result["submitted"] = submission_result.get("submitted_count", 0) > 0
             return result
         finally:
             self.browser_session.safe_close(driver)
@@ -222,8 +248,18 @@ class LotteryEntryWorkflowService:
             print("Lottery page selection result:")
             for slot_text, selected in selection_result.items():
                 print(f"- {slot_text}: {'selected' if selected else 'not selected'}")
-
-        print("Final lottery submission is intentionally disabled in this workflow.")
+        if result.get("submission_requested"):
+            submission_result = result.get("submission_result", {})
+            print("Lottery submission result:")
+            print(
+                "- requested={requested} submitted={submitted} completed={completed}".format(
+                    requested=submission_result.get("requested_count", 0),
+                    submitted=submission_result.get("submitted_count", 0),
+                    completed=submission_result.get("completed", False),
+                )
+            )
+        else:
+            print("Lottery submission was not executed.")
 
     def save_result(self, result, output_dir):
         """Persist a minimal JSON summary for manual review."""
@@ -251,7 +287,10 @@ class LotteryEntryWorkflowService:
             ],
             "skipped_duplicate_datetimes": result.get("skipped_duplicate_datetimes", []),
             "selection_result": result.get("selection_result", {}),
-            "submitted": False,
+            "submission_requested": result.get("submission_requested", False),
+            "confirmation_response": result.get("confirmation_response"),
+            "submission_result": result.get("submission_result", {}),
+            "submitted": result.get("submitted", False),
         }
         output_file = output_path / "lottery_entry_workflow_result.json"
         output_file.write_text(

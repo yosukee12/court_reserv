@@ -79,14 +79,17 @@ Preference Config
 6. `Lottery Entry Workflow` で既存 `LoginService`、`NavigationService`、`LotteryService` を接続する
 7. ランキング結果から最大 2 件、同一日時を除外して候補を選ぶ
 8. 抽選申込み画面上で候補だけを自動選択する
-9. CAPTCHA / reCAPTCHA が表示された場合は手動認証待機へ入る
-10. 認証完了後に既存フローを継続する
+9. 候補内容を表示し、`yes` 入力時のみ最終送信する
+10. CAPTCHA / reCAPTCHA が表示された場合は手動認証待機へ入る
+11. 認証完了後に既存フローを継続する
 
 Phase 2 では、完璧な抽象化や新しい大型レイヤ追加よりも、既存サービスの組み合わせで早く動かすことを優先する。
 
 Issue 0021 では、この最小構成のうち `Preference Config`、`Lottery Candidate Collection`、`Lottery Candidate Ranking`、`Dry-run Runner` を先に実装し、実際の抽選申込み送信にはまだ進まない。
 
 Issue 0022 では、上記 dry-run 結果を使って抽選申込み画面で候補を自動選択する軽量 workflow を追加する。最終送信は行わず、既存 `LotteryService.auto_select_and_submit_slots(..., submit=False)` を利用して pre-submit までに留める。
+
+Issue 0023 では、Issue 0022 の workflow に対話式確認を追加し、ユーザーが `yes` と入力した場合のみ既存 `LotteryService` の送信処理を実行する。完全自動送信フラグは追加しない。
 
 ## Lottery Guide
 

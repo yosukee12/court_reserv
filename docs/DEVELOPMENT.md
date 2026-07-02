@@ -134,6 +134,7 @@
 - CAPTCHA / reCAPTCHA の手動認証待機方針は継続する
 - 空き施設予約は低優先度として扱う
 - 抽選申込み画面の workflow では、まず dry-run の順位結果を使って候補を自動選択するところまでを対象とし、最終送信は別 Issue で扱う
+- 最終送信を扱う Issue でも、必ずユーザー確認を挟み、`yes` 入力時のみ送信する
 
 ## Lottery Guide Rules
 
@@ -153,6 +154,7 @@
 - CAPTCHA / reCAPTCHA は引き続き手動認証待機で扱う
 - Issue 0021 では実際の抽選申込み送信を行わず、候補抽出と順位付けだけを dry-run で確認する
 - Issue 0022 では `LoginService`、`NavigationService`、`LotteryService` を再利用し、抽選申込み画面で候補を自動選択するところまでを対象とする
+- Issue 0023 では候補表示と対話式確認を追加し、`yes` 入力時のみ抽選申込みを送信する
 
 ## Metadata Policy
 
