@@ -93,6 +93,10 @@ Issue 0023 では、Issue 0022 の workflow に対話式確認を追加し、ユ
 
 Issue 0024 では、既存 `LoginService`、`NavigationService`、`LotteryService` を利用して抽選結果確認 workflow を追加する。抽選結果画面から行を取得し、当選 / 落選 / 不明を分類して JSON / CSV 保存するが、予約確定は行わない。
 
+Issue 0025 では、Issue 0024 の当選一覧を利用して予約確定補助 workflow を追加する。必ず当選一覧を表示し、ユーザーが対象を選び、`yes` と入力した場合のみ既存 `ReservationService` を利用して予約確定する。既存 `ReservationService` の制約により、確定は当選行単位ではなくアカウント単位で扱う。
+
+Issue 0026 では、抽選申込み画面の日時一覧から指定曜日の枠だけを収集し、現在申込数を表示できるようにする。さらに `preferences.yaml` の `lottery.default_entries` / `lottery.account_overrides` を使って、IDごとの申込み予定枠を決定する。存在しない枠は警告として保存し、送信後 reCAPTCHA 復旧は扱わない。
+
 ## Lottery Guide
 
 - 抽選申込みは利用前月 1 日 0 時から 10 日 23 時 59 分まで

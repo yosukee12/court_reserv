@@ -80,6 +80,8 @@ class Court_Reserv(tk.Frame):
         self.navigation_service = NavigationService(
             wait_factory=self.browser_session.get_wait,
             sleep_func=time.sleep,
+            logger=logging,
+            get_debug_output_dir=get_debug_output_dir,
         )
         self.lottery_service = LotteryService(
             config=config,

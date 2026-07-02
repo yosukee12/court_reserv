@@ -45,6 +45,105 @@ class ReservationService:
             "javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);",
         )
 
+    def confirm_accounts(self, accounts, login_service=None):
+        """Confirm reservations for selected accounts using the legacy flow."""
+        result_dict = {}
+        driver = self.browser_session.create_driver()
+        try:
+            for account in accounts:
+                user_id = account["user_id"]
+                password = account["password"]
+                display_name = account.get("account_label", "")
+                user_values = [display_name, "", password]
+                try:
+                    if login_service is not None:
+                        if not login_service.login(driver, user_id, password):
+                            self.logger.warning("ID:%s login failed", user_id)
+                            result_dict[user_id] = {
+                                "status": "login_failed",
+                                "confirmed": [],
+                            }
+                            continue
+                    else:
+                        self._legacy_login(driver, user_id, password)
+                except UnexpectedAlertPresentException:
+                    print("ID:" + user_id + " 期限切れ")
+                    self.logger.warning("ID:" + user_id + " 期限切れ")
+                    result_dict[user_id] = {
+                        "status": "login_failed",
+                        "confirmed": [],
+                    }
+                    continue
+
+                result_entry = {"status": "completed", "confirmed": []}
+                if "ホーム画面" in driver.title:
+                    try:
+                        self.navigation_service.go_to_lottery_result_list(driver)
+                        self.sleep_func(0.5)
+                        soup = bs(driver.page_source, "html.parser")
+                        found_day_list = [
+                            elem.text
+                            for elem in soup.find_all(
+                                "span", string=re.compile("月.*日(.*)")
+                            )
+                        ]
+                        found_time_list = [
+                            elem.text
+                            for elem in soup.find_all(
+                                string=re.compile("時.*分～.*時.*分")
+                            )
+                        ]
+                        if len(found_day_list) == 1:
+                            self._get_wait(driver, 240).until(
+                                EC.alert_is_present(),
+                                "Timed out waiting for PA creation confirmation popup to appear.",
+                            )
+                            alert = driver.switch_to.alert
+                            alert.accept()
+                            confirmed_label = found_day_list[0] + " " + found_time_list[0]
+                            print("ID:" + user_id + " 確定日→ " + confirmed_label)
+                            result_entry["confirmed"].append(confirmed_label)
+                            self.logger.info(
+                                "ID:%s 予約確定完了→ %s", user_id, confirmed_label
+                            )
+                        elif len(found_day_list) == 2:
+                            for i in range(2):
+                                self._get_wait(driver, 240).until(
+                                    EC.alert_is_present(),
+                                    "Timed out waiting for PA creation confirmation popup to appear.",
+                                )
+                                alert = driver.switch_to.alert
+                                alert.accept()
+                                confirmed_label = (
+                                    found_day_list[i] + " " + found_time_list[i]
+                                )
+                                print("ID:" + user_id + " 確定日→ " + confirmed_label)
+                                result_entry["confirmed"].append(confirmed_label)
+                                self.logger.info(
+                                    "ID:%s 予約確定完了→ %s",
+                                    user_id,
+                                    confirmed_label,
+                                )
+                        else:
+                            result_entry["status"] = "no_won_results"
+                    except UnexpectedAlertPresentException:
+                        print("ID:" + user_id + " 申込みなし")
+                        result_entry["status"] = "no_won_results"
+                    except Exception:
+                        self.logger.exception("ID:%s reservation confirmation failed", user_id)
+                        result_entry["status"] = "error"
+
+                result_dict[user_id] = result_entry
+                self.sleep_func(1)
+                try:
+                    self.navigation_service.logout(driver)
+                except Exception:
+                    pass
+                self.sleep_func(1)
+        finally:
+            self.browser_session.safe_close(driver)
+        return result_dict
+
     def determine_reserv(self, input_csv_path="", output_csv_path=""):
         """Run the legacy reservation confirmation flow."""
         print(input_csv_path)

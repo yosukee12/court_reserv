@@ -156,6 +156,8 @@
 - Issue 0022 では `LoginService`、`NavigationService`、`LotteryService` を再利用し、抽選申込み画面で候補を自動選択するところまでを対象とする
 - Issue 0023 では候補表示と対話式確認を追加し、`yes` 入力時のみ抽選申込みを送信する
 - Issue 0024 では抽選結果確認画面の結果行を取得・分類・保存し、予約確定には進まない
+- Issue 0025 では当選一覧を表示してユーザーに確定対象を選ばせ、`yes` 入力時のみ予約確定する
+- Issue 0026 では抽選申込み画面の枠一覧と現在申込数を取得し、`default_entries` / `account_overrides` によるID別申込み予定を作る
 
 ## Metadata Policy
 

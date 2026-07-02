@@ -2,7 +2,7 @@
 
 東京都スポーツ施設予約システム向けの個人利用ツールです。現在の実装は Python + Selenium + Tkinter を中心に構成されており、抽選申込み、抽選結果確認、予約確定、空き枠確認を補助します。
 
-Phase 1 では、設定管理、ドキュメント整備、Browser Layer / Service Layer / Model Foundation、Selenium 4 移行までを完了しました。Phase 2 では、空き施設予約よりも先に、抽選申込み自動化の dry-run、抽選申込み画面での候補選択、確認付き送信、抽選結果確認を優先して進めます。
+Phase 1 では、設定管理、ドキュメント整備、Browser Layer / Service Layer / Model Foundation、Selenium 4 移行までを完了しました。Phase 2 では、空き施設予約よりも先に、抽選申込み自動化の dry-run、抽選申込み画面での枠収集と候補選択、確認付き送信、抽選結果確認、予約確定補助を優先して進めます。
 
 ## Scope
 
@@ -60,9 +60,11 @@ scripts/      将来の補助スクリプト置き場
 - 新しい module 起動: `python -m court_reserv.ui.app`
 - Phase 2 dry-run: `python scripts/lottery_automation_dry_run.py --preferences config/preferences.example.yaml --dry-run`
 - Lottery entry workflow: `python scripts/lottery_entry_workflow.py --preferences config/preferences.example.yaml`
-  候補選択後に内容を表示し、`yes` と入力した場合のみ最終送信します
+  指定曜日の枠と現在申込数を収集し、IDごとの申込み予定枠を表示したうえで `yes` と入力した場合のみ最終送信します
 - Lottery result workflow: `python scripts/lottery_result_workflow.py`
   抽選結果を一覧表示し、`output/lottery_automation/` に JSON / CSV 保存します
+- Reservation confirmation assist: `python scripts/reservation_confirmation_workflow.py`
+  当選一覧を表示し、選択したアカウントだけを `yes` 確認後に予約確定します
 
 `.env` では次のような値を設定できます。
 
@@ -94,6 +96,8 @@ Selenium 4.6 以降では Selenium Manager が ChromeDriver の検出と取得�
 - [x] Lottery automation dry-run and entry selection workflow
 - [x] Lottery submission confirmation workflow
 - [x] Lottery result workflow
+- [x] Reservation confirmation assist workflow
+- [x] Lottery entry slot collection workflow
 - [ ] Vacant facility reservation improvements
 - [ ] Notification and operations
 
@@ -103,7 +107,9 @@ Selenium 4.6 以降では Selenium Manager が ChromeDriver の検出と取得�
 - 希望条件と順位付けの整備
 - 抽選申込みワークフローの候補自動選択
 - 抽選申込み前の確認付き送信
+- 抽選申込み画面の枠収集と current entry count 表示
 - 抽選結果確認 workflow
+- 予約確定補助 workflow
 - 空き施設予約は低優先度
 - 通知とスケジューラは Phase 2 の対象外
 
@@ -116,6 +122,25 @@ Selenium 4.6 以降では Selenium Manager が ChromeDriver の検出と取得�
 3. `.env`
 
 希望条件ファイルには ID / password を含めません。
+
+`config/preferences.example.yaml` では、抽選申込み用に次の設定を使えます。
+
+- `lottery.target_weekdays`
+  未指定時は `土` を対象にします
+- `lottery.default_entries`
+  全ID共通の申込み予定枠です
+- `lottery.account_overrides`
+  指定IDだけ申込み予定枠を上書きします
+- `lottery.max_entries_per_account`
+  1IDあたり最大2枠までに制限します
+
+## Reservation Confirmation Note
+
+既存 `ReservationService` の制約により、予約確定補助はアカウント単位で動作します。
+
+- 当選一覧は行単位で表示します
+- ただし確定実行は選択アカウント単位です
+- 同じアカウントの当選を一部だけ確定する操作は、この段階では対応しません
 
 ## Lottery Guide
 

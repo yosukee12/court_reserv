@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Run lottery result workflow without reservation confirmation."""
+"""Run reservation confirmation assist workflow."""
 
 from __future__ import annotations
 
@@ -15,10 +15,13 @@ if str(REPO_ROOT) not in sys.path:
 
 from court_reserv.browser import BrowserSession, LoginService, NavigationService
 from court_reserv.config import get_debug_output_dir, get_output_base_path, load_config
+from court_reserv.manage_id import Manage_Id
 from court_reserv.services import (
     IdManagerService,
     LotteryResultWorkflowService,
     LotteryService,
+    ReservationConfirmationWorkflowService,
+    ReservationService,
 )
 
 
@@ -36,9 +39,46 @@ def _output_id_dict(id_dict, output_file_path):
     return output_file_path
 
 
-def build_parser() -> argparse.ArgumentParser:
+def _select_entries(won_entries):
+    if not won_entries:
+        return []
+    raw = input(
+        "Select won entries by number (comma separated). "
+        "Note: confirmation runs per account, so select all won entries for an account. "
+    ).strip()
+    if not raw:
+        return []
+    indices = []
+    for part in raw.split(","):
+        try:
+            number = int(part.strip())
+        except Exception:
+            continue
+        if 1 <= number <= len(won_entries):
+            indices.append(number - 1)
+    return sorted(set(indices))
+
+
+def _confirm_result(result):
+    selected_accounts = result.get("selected_accounts", [])
+    if not selected_accounts:
+        return ""
+    print("Reservation confirmation will run for these accounts:")
+    for account in selected_accounts:
+        masked = result_workflow_service.lottery_result_workflow_service.mask_user_id(
+            account["user_id"]
+        )
+        label = account.get("account_label", "")
+        print(f"- {masked} {label}".strip())
+    return input("Confirm reservation? Type 'yes' to continue: ").strip()
+
+
+def build_parser():
     parser = argparse.ArgumentParser(
-        description="Fetch and classify lottery result rows without reservation confirmation."
+        description=(
+            "Show won lottery entries, let the user choose confirmation targets, "
+            "and confirm reservations only after explicit 'yes'."
+        )
     )
     parser.add_argument(
         "--id-csv",
@@ -50,17 +90,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output-dir",
-        help="Optional output directory for workflow result JSON and CSV.",
+        help="Optional output directory for workflow result JSON.",
     )
     return parser
 
 
-def main() -> int:
+def main():
+    global result_workflow_service
+
     parser = build_parser()
     args = parser.parse_args()
 
     config = load_config()
-    logger = logging.getLogger("lottery_result_workflow")
+    logger = logging.getLogger("reservation_confirmation_workflow")
 
     browser_session = BrowserSession(config)
     login_service = LoginService(
@@ -87,7 +129,16 @@ def main() -> int:
         output_id_dict=_output_id_dict,
         sleep_func=time.sleep,
     )
-    workflow_service = LotteryResultWorkflowService(
+    reservation_service = ReservationService(
+        config=config,
+        browser_session=browser_session,
+        navigation_service=navigation_service,
+        logger=logger,
+        get_id_dict_from_csv=Manage_Id.get_id_dict_from_csv,
+        output_id_dict=Manage_Id.output_csv_from_id_dict,
+        sleep_func=time.sleep,
+    )
+    lottery_result_workflow_service = LotteryResultWorkflowService(
         config=config,
         browser_session=browser_session,
         login_service=login_service,
@@ -96,22 +147,28 @@ def main() -> int:
         id_manager_service=IdManagerService(config=config, sleep_func=time.sleep),
         logger=logger,
     )
+    result_workflow_service = ReservationConfirmationWorkflowService(
+        lottery_result_workflow_service=lottery_result_workflow_service,
+        reservation_service=reservation_service,
+        login_service=login_service,
+        logger=logger,
+    )
 
-    result = workflow_service.run(
+    result = result_workflow_service.run(
         id_csv=args.id_csv,
         account_id=args.account_id,
+        select_entries_callback=_select_entries,
+        confirm_callback=_confirm_result,
     )
-    workflow_service.print_result(result)
+    result_workflow_service.print_result(result)
 
     output_dir = (
         Path(args.output_dir)
         if args.output_dir
         else get_output_base_path() / "lottery_automation"
     )
-    json_path, csv_path = workflow_service.save_result(result, output_dir)
+    json_path = result_workflow_service.save_result(result, output_dir)
     print(f"Saved result JSON: {json_path}")
-    print(f"Saved result CSV: {csv_path}")
-    print("Reservation confirmation is intentionally disabled in this workflow.")
     return 0
 
 

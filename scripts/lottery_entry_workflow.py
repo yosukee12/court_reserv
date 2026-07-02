@@ -15,16 +15,16 @@ if str(REPO_ROOT) not in sys.path:
 
 from court_reserv.browser import BrowserSession, LoginService, NavigationService
 from court_reserv.config import (
+    get_debug_output_dir,
     get_output_base_path,
     load_config,
     load_reservation_preference,
 )
 from court_reserv.services import (
     IdManagerService,
+    LotteryEntrySlotCollector,
     LotteryEntryWorkflowService,
     LotteryService,
-    SlotCollectionAdapter,
-    SlotRankingService,
 )
 
 
@@ -51,13 +51,16 @@ def _confirm_submission(result):
     print(
         "Submit selected lottery entries? Type 'yes' to submit. Any other input will cancel."
     )
-    return input("Submit? [yes/no]: ").strip()
+    try:
+        return input("Submit? [yes/no]: ").strip()
+    except EOFError:
+        return ""
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Select ranked lottery entry candidates on the lottery page and submit only after explicit 'yes' confirmation."
+            "Collect lottery entry slots from the current page, apply default_entries/account_overrides, and submit only after explicit 'yes' confirmation."
         )
     )
     parser.add_argument(
@@ -66,16 +69,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to a YAML or JSON preference file. Defaults to config/preferences.example.yaml.",
     )
     parser.add_argument(
-        "--source-csv",
-        help="Optional path to an available_slots_*.csv file used as a candidate source.",
-    )
-    parser.add_argument(
         "--id-csv",
         help="Optional ID CSV path. When provided, credentials are resolved from this CSV first.",
     )
     parser.add_argument(
         "--account-id",
-        help="Optional account ID to use from the ID CSV. Defaults to the first CSV entry.",
+        help="Optional account ID to use from the ID CSV. Defaults to all resolved accounts.",
     )
     parser.add_argument(
         "--output-dir",
@@ -85,7 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-select",
         type=int,
         default=2,
-        help="Maximum number of ranked candidates to select on the page. Capped at 2.",
+        help="Maximum number of planned entries per account. Capped at 2.",
     )
     return parser
 
@@ -110,6 +109,8 @@ def main() -> int:
     navigation_service = NavigationService(
         wait_factory=browser_session.get_wait,
         sleep_func=time.sleep,
+        logger=logger,
+        get_debug_output_dir=get_debug_output_dir,
     )
     lottery_service = LotteryService(
         config=config,
@@ -128,52 +129,59 @@ def main() -> int:
         navigation_service=navigation_service,
         lottery_service=lottery_service,
         id_manager_service=IdManagerService(config=config, sleep_func=time.sleep),
-        slot_adapter=SlotCollectionAdapter(),
-        slot_ranking_service=SlotRankingService(),
+        slot_collector=LotteryEntrySlotCollector(
+            navigation_service=navigation_service,
+            browser_session=browser_session,
+        ),
         logger=logger,
     )
 
-    def preview_result(result):
-        source_csv = result.get("source_csv")
-        if source_csv:
-            print(f"Candidate source: {source_csv}")
-        print(f"Credential source: {result.get('credential_source')}")
-        print(f"Target user ID: {result.get('user_id')}")
-        if result.get("account_label"):
-            print(f"Account label: {result.get('account_label')}")
-        print(f"Total candidates: {result.get('total_slots', 0)}")
+    def preview_account_result(account_result):
+        account_part = account_result.get("masked_user_id")
+        if account_result.get("account_label"):
+            account_part = f"{account_part} ({account_result.get('account_label')})"
+        print(f"Account: {account_part}")
+        print(f"Status: {account_result.get('status')}")
+        if account_result.get("error"):
+            print(f"Error: {account_result.get('error')}")
+        print(
+            f"Target weekdays: {', '.join(account_result.get('target_weekdays', []))}"
+        )
+        print(f"Collected slots: {len(account_result.get('collected_slots', []))}")
+        planned_slots = account_result.get("planned_slots", [])
+        if planned_slots:
+            print("Planned entry slots:")
+            for index, slot in enumerate(planned_slots, start=1):
+                facility = " ".join(
+                    part
+                    for part in (
+                        slot.get("park_name", ""),
+                        slot.get("facility_name", ""),
+                    )
+                    if part
+                ).strip()
+                print(
+                    f"{index}. {slot.get('date')} {slot.get('weekday')} {slot.get('time_range')} "
+                    f"facility={facility} applied={slot.get('applied_count')}"
+                )
+        else:
+            print("No planned entry slots.")
 
-        selected_candidates = result.get("selected_candidates", [])
-        if not selected_candidates:
-            print("No lottery entry candidates were selected.")
-            return
+        missing_slots = account_result.get("missing_slots", [])
+        if missing_slots:
+            print("Warnings:")
+            for warning in missing_slots:
+                print(
+                    f"- {warning.get('date')} {warning.get('time_range')} "
+                    f"facility={warning.get('facility')} warning={warning.get('warning')}"
+                )
 
-        print("Selected lottery entry candidates:")
-        for index, ranked in enumerate(selected_candidates, start=1):
-            reasons = ", ".join(ranked.reasons) if ranked.reasons else "no preference match"
-            print(
-                f"{index}. score={ranked.score} slot={workflow_service._to_slot_text(ranked)} reasons={reasons}"
-            )
-
-        selection_result = result.get("selection_result", {})
-        if selection_result:
-            print("Lottery page selection result:")
-            for slot_text, selected in selection_result.items():
-                print(f"- {slot_text}: {'selected' if selected else 'not selected'}")
-
-    search_dirs = [
-        get_output_base_path(),
-        get_output_base_path() / "debug_pages",
-        Path("court_reserv/debug_pages"),
-    ]
     result = workflow_service.run(
         preference=preference,
-        source_csv=args.source_csv,
-        search_dirs=search_dirs,
         id_csv=args.id_csv,
         account_id=args.account_id,
         max_select=args.max_select,
-        display_result_callback=preview_result,
+        display_result_callback=preview_account_result,
         confirm_submit_callback=_confirm_submission,
     )
     workflow_service.print_result(result)

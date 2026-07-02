@@ -9,7 +9,14 @@ runtime behavior.
 
 from .account import Account
 from .facility import Facility
+from .lottery_entry_slot import LotteryEntrySlot
 from .preference import ReservationPreference
 from .slot import Slot
 
-__all__ = ["Account", "Facility", "Slot", "ReservationPreference"]
+__all__ = [
+    "Account",
+    "Facility",
+    "Slot",
+    "ReservationPreference",
+    "LotteryEntrySlot",
+]

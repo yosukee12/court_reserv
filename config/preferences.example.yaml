@@ -1,5 +1,29 @@
 # Lottery automation preference example
 
+lottery:
+  target_weekdays:
+    - 土
+
+  max_entries_per_account: 2
+
+  default_entries:
+    - facility: 府中の森公園
+      date: 2026-08-15
+      time_range: "09:00-11:00"
+    - facility: 府中の森公園
+      date: 2026-08-15
+      time_range: "11:00-13:00"
+
+  account_overrides:
+    "12345678":
+      entries:
+        - facility: 府中の森公園
+          date: 2026-08-16
+          time_range: "09:00-11:00"
+        - facility: 府中の森公園
+          date: 2026-08-16
+          time_range: "11:00-13:00"
+
 preferred_facilities:
   - park_name: 府中の森公園
     facility_name: テニス（人工芝）
@@ -7,7 +31,6 @@ preferred_facilities:
 
 preferred_weekdays:
   - 土
-  - 日
 
 preferred_time_ranges:
   - "09:00-11:00"

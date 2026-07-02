@@ -9,12 +9,10 @@ import os
 from pathlib import Path
 
 from court_reserv.config import get_default_credentials
-from court_reserv.services.lottery_automation import LotteryAutomationDryRunService
-from court_reserv.services.slot_ranking import RankedSlot
 
 
 class LotteryEntryWorkflowService:
-    """Drive ranked candidate selection up to the pre-submit lottery page."""
+    """Drive lottery entry slot collection, planning, and optional submission."""
 
     def __init__(
         self,
@@ -24,8 +22,9 @@ class LotteryEntryWorkflowService:
         navigation_service,
         lottery_service,
         id_manager_service,
-        slot_adapter,
-        slot_ranking_service,
+        slot_collector,
+        slot_adapter=None,
+        slot_ranking_service=None,
         logger=None,
     ):
         self.config = config
@@ -34,50 +33,48 @@ class LotteryEntryWorkflowService:
         self.navigation_service = navigation_service
         self.lottery_service = lottery_service
         self.id_manager_service = id_manager_service
+        self.slot_collector = slot_collector
         self.slot_adapter = slot_adapter
         self.slot_ranking_service = slot_ranking_service
         self.logger = logger or logging.getLogger(__name__)
-        self.dry_run_service = LotteryAutomationDryRunService(
-            slot_adapter=self.slot_adapter,
-            slot_ranking_service=self.slot_ranking_service,
-            logger=self.logger,
-        )
 
-    def resolve_credentials(self, id_csv=None, account_id=None):
-        """Resolve credentials by issue-defined priority."""
+    def resolve_accounts(self, id_csv=None, account_id=None):
+        """Resolve accounts by issue-defined priority."""
         if id_csv:
             id_dict = self.id_manager_service.load_accounts(id_csv)
             if not id_dict:
                 raise ValueError(f"No accounts found in CSV: {id_csv}")
 
-            if account_id:
-                if account_id not in id_dict:
-                    raise ValueError(f"Account ID not found in CSV: {account_id}")
-                user_id = account_id
-            else:
-                user_id = next(iter(id_dict))
-
-            values = id_dict[user_id]
-            password = values[2] if len(values) >= 3 else ""
-            if not password:
-                raise ValueError(f"Password is empty for account: {user_id}")
-
-            return {
-                "user_id": user_id,
-                "password": password,
-                "source": "id_csv",
-                "account_label": values[0] if values else "",
-            }
+            target_ids = [account_id] if account_id else list(id_dict.keys())
+            accounts = []
+            for user_id in target_ids:
+                if user_id not in id_dict:
+                    raise ValueError(f"Account ID not found in CSV: {user_id}")
+                values = id_dict[user_id]
+                password = values[2] if len(values) >= 3 else ""
+                if not password:
+                    raise ValueError(f"Password is empty for account: {user_id}")
+                accounts.append(
+                    {
+                        "user_id": user_id,
+                        "password": password,
+                        "source": "id_csv",
+                        "account_label": values[0] if values else "",
+                    }
+                )
+            return accounts
 
         config_user_id = self.config.get("AUTH", "USER_ID", fallback="").strip()
         config_password = self.config.get("AUTH", "PASSWORD", fallback="").strip()
         if config_user_id and config_password:
-            return {
-                "user_id": config_user_id,
-                "password": config_password,
-                "source": "config.local.ini",
-                "account_label": "",
-            }
+            return [
+                {
+                    "user_id": config_user_id,
+                    "password": config_password,
+                    "source": "config.local.ini",
+                    "account_label": "",
+                }
+            ]
 
         user_id, password = get_default_credentials()
         if user_id and password:
@@ -91,12 +88,14 @@ class LotteryEntryWorkflowService:
                 "COURT_RESERV_PASSWORD"
             ):
                 source = ".env"
-            return {
-                "user_id": user_id,
-                "password": password,
-                "source": source,
-                "account_label": "",
-            }
+            return [
+                {
+                    "user_id": user_id,
+                    "password": password,
+                    "source": source,
+                    "account_label": "",
+                }
+            ]
 
         raise ValueError(
             "Credentials were not found. Configure an ID CSV, config.local.ini, or .env."
@@ -113,24 +112,56 @@ class LotteryEntryWorkflowService:
         display_result_callback=None,
         confirm_submit_callback=None,
     ):
-        dry_run_result = self.dry_run_service.run(
-            preference=preference,
-            source_csv=source_csv,
-            search_dirs=search_dirs,
+        del source_csv, search_dirs
+        accounts = self.resolve_accounts(id_csv=id_csv, account_id=account_id)
+        target_weekdays = (
+            preference.lottery_target_weekdays
+            if preference.lottery_target_weekdays
+            else ["土"]
         )
-        selected_candidates, skipped_duplicates = self.select_candidates(
-            dry_run_result.get("ranked_candidates", []),
-            max_select=max_select,
-        )
-
         result = {
-            "credential_source": None,
-            "user_id": None,
-            "account_label": "",
-            "source_csv": dry_run_result.get("source_csv"),
-            "total_slots": dry_run_result.get("total_slots", 0),
-            "selected_candidates": selected_candidates,
-            "skipped_duplicate_datetimes": skipped_duplicates,
+            "account_source": accounts[0]["source"] if accounts else None,
+            "target_weekdays": target_weekdays,
+            "accounts": [],
+        }
+
+        for account in accounts:
+            account_result = self._run_for_account(
+                account=account,
+                preference=preference,
+                max_select=max_select,
+                display_result_callback=display_result_callback,
+                confirm_submit_callback=confirm_submit_callback,
+            )
+            result["accounts"].append(account_result)
+
+        return result
+
+    def _run_for_account(
+        self,
+        account,
+        preference,
+        max_select=2,
+        display_result_callback=None,
+        confirm_submit_callback=None,
+    ):
+        account_result = {
+            "status": "completed",
+            "error": None,
+            "credential_source": account["source"],
+            "user_id": account["user_id"],
+            "masked_user_id": self.mask_user_id(account["user_id"]),
+            "account_label": account.get("account_label", ""),
+            "target_weekdays": preference.lottery_target_weekdays or ["土"],
+            "collected_slots": [],
+            "week_search": {
+                "max_weeks": 8,
+                "weeks_explored": 0,
+                "weekly_slot_counts": [],
+                "stopped_reason": None,
+            },
+            "planned_slots": [],
+            "missing_slots": [],
             "selection_result": {},
             "submission_requested": False,
             "confirmation_response": None,
@@ -142,39 +173,76 @@ class LotteryEntryWorkflowService:
             "submitted": False,
         }
 
-        if not selected_candidates:
-            return result
-
-        auth = self.resolve_credentials(id_csv=id_csv, account_id=account_id)
-        result["credential_source"] = auth["source"]
-        result["user_id"] = auth["user_id"]
-        result["account_label"] = auth.get("account_label", "")
-
-        selected_slot_texts = [
-            self._to_slot_text(ranked_slot) for ranked_slot in selected_candidates
-        ]
-
         driver = self.browser_session.create_driver()
         try:
-            if not self.login_service.login(driver, auth["user_id"], auth["password"]):
-                raise RuntimeError(f"Login failed for user: {auth['user_id']}")
+            if not self.login_service.login(driver, account["user_id"], account["password"]):
+                account_result["status"] = "login_failed"
+                account_result["error"] = "login_failed"
+                if display_result_callback is not None:
+                    display_result_callback(account_result)
+                return account_result
 
             self.navigation_service.go_to_lottery_entry(driver)
             self.navigation_service.select_lottery_tennis_park(driver)
+
+            account_entries = self._get_account_entries(account, preference)
+            collect_result = self.slot_collector.collect_slots_for_entries(
+                driver,
+                target_entries=account_entries,
+                target_weekdays=preference.lottery_target_weekdays or ["土"],
+                max_weeks=8,
+            )
+            collected_slots = collect_result.get("slots", [])
+            account_result["collected_slots"] = [
+                self._serialize_slot(slot) for slot in collected_slots
+            ]
+            account_result["week_search"] = {
+                "max_weeks": collect_result.get("max_weeks", 8),
+                "weeks_explored": collect_result.get("weeks_explored", 0),
+                "weekly_slot_counts": [
+                    {
+                        "week_index": item.get("week_index"),
+                        "slot_count": item.get("slot_count"),
+                        "dates": item.get("dates", []),
+                        "matched_target_count": item.get("matched_target_count"),
+                    }
+                    for item in collect_result.get("weekly_summaries", [])
+                ],
+                "stopped_reason": collect_result.get("stopped_reason"),
+            }
+
+            planned_slots, missing_slots = self._build_account_plan(
+                account=account,
+                preference=preference,
+                collected_slots=collected_slots,
+                entries=account_entries,
+                max_select=max_select,
+            )
+            account_result["planned_slots"] = [
+                self._serialize_slot(slot) for slot in planned_slots
+            ]
+            account_result["missing_slots"] = missing_slots
+
+            if display_result_callback is not None:
+                display_result_callback(account_result)
+
+            if not planned_slots:
+                return account_result
+
             selection_result = self.lottery_service.auto_select_and_submit_slots(
                 driver,
-                selected_slot_texts,
+                [slot.raw_text for slot in planned_slots if slot.raw_text],
                 submit=False,
             )
-            result["selection_result"] = selection_result
-            if display_result_callback is not None:
-                display_result_callback(result)
+            account_result["selection_result"] = selection_result
 
             if confirm_submit_callback is not None:
-                confirmation_response = confirm_submit_callback(result)
-                result["confirmation_response"] = confirmation_response
-                result["submission_requested"] = str(confirmation_response).strip().lower() == "yes"
-                if result["submission_requested"]:
+                confirmation_response = confirm_submit_callback(account_result)
+                account_result["confirmation_response"] = confirmation_response
+                account_result["submission_requested"] = (
+                    str(confirmation_response).strip().lower() == "yes"
+                )
+                if account_result["submission_requested"]:
                     selected_count = sum(
                         1 for selected in selection_result.values() if selected
                     )
@@ -182,135 +250,216 @@ class LotteryEntryWorkflowService:
                         driver,
                         success_count=selected_count,
                     )
-                    result["submission_result"] = submission_result
-                    result["submitted"] = submission_result.get("submitted_count", 0) > 0
-            return result
+                    account_result["submission_result"] = submission_result
+                    account_result["submitted"] = (
+                        submission_result.get("submitted_count", 0) > 0
+                    )
+            return account_result
+        except Exception as exc:
+            self.logger.exception(
+                "Lottery entry workflow failed for %s", account["user_id"]
+            )
+            account_result["status"] = "error"
+            account_result["error"] = str(exc)
+            if display_result_callback is not None:
+                display_result_callback(account_result)
+            return account_result
         finally:
             self.browser_session.safe_close(driver)
 
-    def select_candidates(self, ranked_candidates, max_select=2):
-        """Choose up to two unique datetime candidates."""
-        selected = []
-        skipped_duplicates = []
-        seen_datetimes = set()
-        limit = max(1, min(int(max_select), 2))
+    def _build_account_plan(
+        self,
+        account,
+        preference,
+        collected_slots,
+        entries=None,
+        max_select=2,
+    ):
+        del account
+        entries = entries if isinstance(entries, list) else []
 
-        for ranked in ranked_candidates:
-            key = (ranked.slot.date, ranked.slot.time_range)
-            if key in seen_datetimes:
-                skipped_duplicates.append(
+        desired_limit = min(
+            int(max_select or preference.lottery_max_entries_per_account or 2),
+            int(preference.lottery_max_entries_per_account or 2),
+            2,
+        )
+
+        unique_keys = set()
+        planned_slots = []
+        missing_slots = []
+
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            date = str(entry.get("date", "")).strip()
+            time_range = str(entry.get("time_range", "")).strip()
+            facility = str(entry.get("facility", "")).strip()
+            key = (date, time_range)
+            if not date or not time_range or key in unique_keys:
+                continue
+            unique_keys.add(key)
+            if len(planned_slots) >= desired_limit:
+                missing_slots.append(
                     {
-                        "date": ranked.slot.date,
-                        "time_range": ranked.slot.time_range,
-                        "raw_text": ranked.slot.raw_text,
+                        "date": date,
+                        "time_range": time_range,
+                        "facility": facility,
+                        "warning": "skipped because max 2 entries per account is enforced",
                     }
                 )
                 continue
-            seen_datetimes.add(key)
-            selected.append(ranked)
-            if len(selected) >= limit:
-                break
 
-        return selected, skipped_duplicates
+            matched_slot = self._match_slot(collected_slots, date, time_range, facility)
+            if matched_slot is None:
+                missing_slots.append(
+                    {
+                        "date": date,
+                        "time_range": time_range,
+                        "facility": facility,
+                        "warning": "slot not found within explored lottery entry weeks",
+                    }
+                )
+                continue
+            planned_slots.append(matched_slot)
+
+        return planned_slots, missing_slots
+
+    def _get_account_entries(self, account, preference):
+        entries = preference.lottery_account_overrides.get(
+            account["user_id"],
+            preference.lottery_default_entries,
+        )
+        if not isinstance(entries, list):
+            return []
+        return entries
+
+    def _match_slot(self, collected_slots, date, time_range, facility):
+        for slot in collected_slots:
+            if slot.date != date or slot.time_range != time_range:
+                continue
+            if facility:
+                searchable = " ".join(
+                    part for part in (slot.park_name, slot.facility_name) if part
+                )
+                if facility not in searchable:
+                    continue
+            return slot
+        return None
 
     def print_result(self, result):
-        source_csv = result.get("source_csv")
-        if source_csv:
-            print(f"Candidate source: {source_csv}")
-        print(f"Credential source: {result.get('credential_source')}")
-        print(f"Target user ID: {result.get('user_id')}")
-        if result.get("account_label"):
-            print(f"Account label: {result.get('account_label')}")
-        print(f"Total candidates: {result.get('total_slots', 0)}")
-
-        selected_candidates = result.get("selected_candidates", [])
-        if not selected_candidates:
-            print("No lottery entry candidates were selected.")
-            return
-
-        print("Selected lottery entry candidates:")
-        for index, ranked in enumerate(selected_candidates, start=1):
-            reasons = ", ".join(ranked.reasons) if ranked.reasons else "no preference match"
-            print(
-                f"{index}. score={ranked.score} slot={self._to_slot_text(ranked)} reasons={reasons}"
-            )
-
-        skipped_duplicates = result.get("skipped_duplicate_datetimes", [])
-        if skipped_duplicates:
-            print("Skipped duplicate datetime candidates:")
-            for skipped in skipped_duplicates:
+        print(f"Account source: {result.get('account_source')}")
+        print(f"Target weekdays: {', '.join(result.get('target_weekdays', []))}")
+        for account_result in result.get("accounts", []):
+            account_part = account_result.get("masked_user_id")
+            if account_result.get("account_label"):
+                account_part = f"{account_part} ({account_result.get('account_label')})"
+            print(f"Account: {account_part}")
+            print(f"- status={account_result.get('status')}")
+            if account_result.get("error"):
+                print(f"- error={account_result.get('error')}")
+            print(f"- collected_slots={len(account_result.get('collected_slots', []))}")
+            week_search = account_result.get("week_search", {})
+            if week_search:
                 print(
-                    f"- {skipped.get('date')} {skipped.get('time_range')} {skipped.get('raw_text') or ''}".strip()
+                    "- week search: explored={explored}/{max_weeks} stopped_reason={reason}".format(
+                        explored=week_search.get("weeks_explored", 0),
+                        max_weeks=week_search.get("max_weeks", 0),
+                        reason=week_search.get("stopped_reason"),
+                    )
                 )
+                for week_info in week_search.get("weekly_slot_counts", []):
+                    print(
+                        "  week {week}: slots={slots} dates={dates}".format(
+                            week=week_info.get("week_index"),
+                            slots=week_info.get("slot_count"),
+                            dates=",".join(week_info.get("dates", [])),
+                        )
+                    )
 
-        selection_result = result.get("selection_result", {})
-        if selection_result:
-            print("Lottery page selection result:")
-            for slot_text, selected in selection_result.items():
-                print(f"- {slot_text}: {'selected' if selected else 'not selected'}")
-        if result.get("submission_requested"):
-            submission_result = result.get("submission_result", {})
-            print("Lottery submission result:")
-            print(
-                "- requested={requested} submitted={submitted} completed={completed}".format(
-                    requested=submission_result.get("requested_count", 0),
-                    submitted=submission_result.get("submitted_count", 0),
-                    completed=submission_result.get("completed", False),
+            planned_slots = account_result.get("planned_slots", [])
+            if planned_slots:
+                print("- planned slots:")
+                for slot in planned_slots:
+                    print(
+                        "  {date} {weekday} {time_range} facility={facility} applied={applied}".format(
+                            date=slot.get("date"),
+                            weekday=slot.get("weekday"),
+                            time_range=slot.get("time_range"),
+                            facility=" ".join(
+                                part
+                                for part in (
+                                    slot.get("park_name", ""),
+                                    slot.get("facility_name", ""),
+                                )
+                                if part
+                            ).strip(),
+                            applied=slot.get("applied_count"),
+                        )
+                    )
+            else:
+                print("- no planned slots")
+
+            missing_slots = account_result.get("missing_slots", [])
+            if missing_slots:
+                print("- warnings:")
+                for warning in missing_slots:
+                    print(
+                        "  {date} {time_range} facility={facility} warning={warning_text}".format(
+                            date=warning.get("date"),
+                            time_range=warning.get("time_range"),
+                            facility=warning.get("facility", ""),
+                            warning_text=warning.get("warning"),
+                        )
+                    )
+
+            selection_result = account_result.get("selection_result", {})
+            if selection_result:
+                print("- selection result:")
+                for slot_text, selected in selection_result.items():
+                    print(f"  {slot_text}: {'selected' if selected else 'not selected'}")
+
+            if account_result.get("submission_requested"):
+                submission_result = account_result.get("submission_result", {})
+                print(
+                    "- submission: requested={requested} submitted={submitted} completed={completed}".format(
+                        requested=submission_result.get("requested_count", 0),
+                        submitted=submission_result.get("submitted_count", 0),
+                        completed=submission_result.get("completed", False),
+                    )
                 )
-            )
-        else:
-            print("Lottery submission was not executed.")
+            else:
+                print("- submission was not executed")
 
     def save_result(self, result, output_dir):
-        """Persist a minimal JSON summary for manual review."""
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "credential_source": result.get("credential_source"),
-            "user_id": result.get("user_id"),
-            "account_label": result.get("account_label"),
-            "source_csv": result.get("source_csv"),
-            "total_slots": result.get("total_slots", 0),
-            "selected_candidates": [
-                {
-                    "score": ranked.score,
-                    "reasons": ranked.reasons,
-                    "slot": {
-                        "date": ranked.slot.date,
-                        "time_range": ranked.slot.time_range,
-                        "court_name": ranked.slot.court_name,
-                        "applied_count": ranked.slot.applied_count,
-                        "raw_text": ranked.slot.raw_text,
-                    },
-                }
-                for ranked in result.get("selected_candidates", [])
-            ],
-            "skipped_duplicate_datetimes": result.get("skipped_duplicate_datetimes", []),
-            "selection_result": result.get("selection_result", {}),
-            "submission_requested": result.get("submission_requested", False),
-            "confirmation_response": result.get("confirmation_response"),
-            "submission_result": result.get("submission_result", {}),
-            "submitted": result.get("submitted", False),
-        }
         output_file = output_path / "lottery_entry_workflow_result.json"
         output_file.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
+            json.dumps(result, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         return output_file
 
-    def _to_slot_text(self, ranked_slot: RankedSlot) -> str:
-        slot = ranked_slot.slot
-        if slot.raw_text:
-            return slot.raw_text
-        ymd = slot.date.replace("-", "") if slot.date else ""
-        if slot.time_range and "-" in slot.time_range:
-            start, end = slot.time_range.split("-", 1)
-            compact_time = f"{start.replace(':', '')}-{end.replace(':', '')}"
-        else:
-            compact_time = slot.time_range or ""
-        parts = [part for part in (ymd, compact_time, slot.court_name) if part]
-        return " ".join(parts)
+    def mask_user_id(self, user_id):
+        text = str(user_id)
+        if len(text) <= 4:
+            return "*" * len(text)
+        return f"{text[:2]}***{text[-2:]}"
+
+    def _serialize_slot(self, slot):
+        return {
+            "park_name": slot.park_name,
+            "facility_name": slot.facility_name,
+            "date": slot.date,
+            "weekday": slot.weekday,
+            "time_range": slot.time_range,
+            "start_time": slot.start_time,
+            "end_time": slot.end_time,
+            "field_number": slot.field_number,
+            "available_count": slot.available_count,
+            "applied_count": slot.applied_count,
+            "raw_text": slot.raw_text,
+        }
 
     def _read_env_file(self):
         env_values = {}
