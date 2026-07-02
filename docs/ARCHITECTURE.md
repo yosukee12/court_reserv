@@ -56,6 +56,7 @@ court_reserv/
 - 振る舞い変更を伴う整理は、必ず個別 Issue で扱う
 - Selenium の操作順序、Tkinter の見た目、予約ロジックは明示的な Issue が出るまで維持する
 - Browser Session のような共通基盤は先に切り出してよいが、ログイン処理や予約処理の中身は同じ Issue で変更しない
+- Login Service のような再利用処理は `browser/` に段階的に切り出してよいが、画面遷移や予約処理の責務までは同時に広げない
 
 ## UI Entrypoint Policy
 
@@ -69,6 +70,12 @@ court_reserv/
 - WebDriver の生成、ChromeOptions の設定、`WebDriverWait` の生成、終了処理は `browser/session.py` に集約する
 - `Court_Reserv` では Browser Session を呼び出すだけに留め、ログインや予約の本体ロジックはそのまま維持する
 - `find_element_by_*` の置換や Selenium 4 対応は別 Issue で扱う
+
+## Login Service Policy
+
+- ログイン処理と CAPTCHA / reCAPTCHA 手動待機方針は `browser/login.py` に集約する
+- `Court_Reserv` では Login Service を呼び出すだけに留め、抽選処理や予約処理の本体ロジックは維持する
+- CAPTCHA / reCAPTCHA の回避、突破、自動認証は実装しない
 
 ## Automation Policy
 

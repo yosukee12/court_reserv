@@ -8,21 +8,20 @@ import re
 try:
     from .manage_id import Manage_Id as mi
     from .config import get_debug_output_dir, load_config
-    from .browser import BrowserSession
+    from .browser import BrowserSession, LoginService
 except Exception:
     # allow running the module as a script (no package context)
     from manage_id import Manage_Id as mi
     from config import get_debug_output_dir, load_config
-    from browser import BrowserSession
+    from browser import BrowserSession, LoginService
 import tkinter as tk
 from tkinter import ttk, messagebox
 from functools import partial
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.select import Select
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException, JavascriptException
+from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException
 from bs4 import BeautifulSoup as bs
 
 # Config
@@ -58,6 +57,14 @@ class Court_Reserv(tk.Frame):
         self.master.geometry("500x500")
         self.master.title("Court Reservation")
         self.browser_session = BrowserSession(config)
+        self.login_service = LoginService(
+            top_url=config["URL"]["TOP_URL"],
+            wait_factory=self.browser_session.get_wait,
+            logger=logging,
+            show_info=messagebox.showinfo,
+            ask_yes_no=messagebox.askyesno,
+            sleep_func=time.sleep,
+        )
         self.driver = None
 
         self.create_widgets()
@@ -152,71 +159,8 @@ class Court_Reserv(tk.Frame):
         return self.browser_session.get_wait(self.driver, timeout)
 
     def _login(self, user_id, password):
-        """ログイン処理。成功するとホーム画面になるまで待つ。"""
         self._start_driver()
-        self.driver.get(config['URL']['TOP_URL'])
-        try:
-            try:
-                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
-            except JavascriptException:
-                # page may not expose doAction; continue and try locating form directly
-                pass
-
-            # try to find login fields; if not on main document, try common iframe
-            try:
-                user_el = self.driver.find_element(By.NAME, "userId")
-            except Exception:
-                try:
-                    self.driver.switch_to.frame("pawae1002")
-                    user_el = self.driver.find_element(By.NAME, "userId")
-                except Exception:
-                    logging.warning("Login form not found for user %s", user_id)
-                    try:
-                        self.driver.switch_to.default_content()
-                    except Exception:
-                        pass
-                    return False
-
-            user_el.send_keys(user_id)
-            self.driver.find_element(By.NAME, "password").send_keys(password)
-            time.sleep(0.5)
-            try:
-                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
-            except JavascriptException:
-                # fallback: try to submit by sending Enter
-                try:
-                    self.driver.find_element(By.NAME, "password").send_keys(Keys.RETURN)
-                except Exception:
-                    pass
-
-            # login may produce an alert on failure; detect and accept it
-            try:
-                self._get_wait(2).until(EC.alert_is_present())
-                alert = self.driver.switch_to.alert
-                alert_text = alert.text
-                alert.accept()
-                logging.warning("ID:%s login alert: %s", user_id, alert_text)
-                return False
-            except TimeoutException:
-                # no alert -> proceed
-                # If a captcha is present, prompt the user to solve it instead of failing
-                try:
-                    if self._detect_captcha():
-                        ok = self._wait_for_captcha_solve()
-                        return bool(ok)
-                except Exception:
-                    pass
-                return True
-        except UnexpectedAlertPresentException:
-            # unexpected alert caught during commands
-            try:
-                alert = self.driver.switch_to.alert
-                alert_text = alert.text
-                alert.accept()
-                logging.warning("ID:%s unexpected alert during login: %s", user_id, alert_text)
-            except Exception:
-                pass
-            return False
+        return self.login_service.login(self.driver, user_id, password)
 
     def _logout(self):
         try:
@@ -225,46 +169,12 @@ class Court_Reserv(tk.Frame):
             pass
 
     def _detect_captcha(self):
-        """Detect whether a reCAPTCHA-like widget appears on the current page."""
-        if not getattr(self, 'driver', None):
-            return False
-        try:
-            # look for iframe or div indicators
-            els = self.driver.find_elements(By.CSS_SELECTOR, "iframe[src*='recaptcha'], div.g-recaptcha")
-            if els and len(els) > 0:
-                return True
-            ps = self.driver.page_source
-            if 'g-recaptcha' in ps or 'recaptcha' in ps:
-                return True
-        except Exception:
-            return False
-        return False
+        return self.login_service.detect_captcha(self.driver)
 
     def _wait_for_captcha_solve(self, timeout_minutes=5):
-        """Prompt user to solve captcha manually and wait until it's gone (or cancelled).
-        Returns True if captcha cleared, False if cancelled/timed-out.
-        """
-        try:
-            messagebox.showinfo('reCAPTCHA 検出', 'ページ上にreCAPTCHAが検出されました。ブラウザで手動で認証してください。完了したら「OK」を押してください。')
-        except Exception:
-            print('reCAPTCHA detected: please solve it manually in the browser and then continue.')
-        start = time.time()
-        timeout = timeout_minutes * 60
-        while True:
-            try:
-                if not self._detect_captcha():
-                    return True
-            except Exception:
-                return False
-            if time.time() - start > timeout:
-                try:
-                    cont = messagebox.askyesno('reCAPTCHA まだ有効', 'reCAPTCHAがまだ残っています。続行して再試行しますか？(OK=再確認 / キャンセル=中断)')
-                except Exception:
-                    cont = False
-                if not cont:
-                    return False
-                start = time.time()
-            time.sleep(1)
+        return self.login_service.wait_for_manual_captcha(
+            self.driver, timeout_minutes=timeout_minutes
+        )
 
     def _navigate_to_lottery_entry(self):
         # 抽選申し込み画面まで移動し、種目と公園を選択する共通処理
