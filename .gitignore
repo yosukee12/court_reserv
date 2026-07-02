@@ -1,1 +1,5 @@
 __pycache__/
+debug_pages/
+*.csv
+*.log
+*.html
