@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import getpass
+import sys
 import tkinter as tk
 import traceback
 from pathlib import Path
 import datetime
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from court_reserv.court_reserv import Court_Reserv
 from court_reserv.config import get_debug_output_dir, get_default_credentials
@@ -17,10 +20,6 @@ def save_debug(app, label='error'):
     # repository-level debug dir (alias, same as out_dir)
     repo_dir = out_dir
 
-    # package debug dir inside the workspace package (also keep)
-    pkg_dir = Path(__file__).resolve().parent / 'court_reserv' / 'debug_pages'
-    pkg_dir.mkdir(parents=True, exist_ok=True)
-
     ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     saved = []
 
@@ -28,23 +27,12 @@ def save_debug(app, label='error'):
         # save main html
         try:
             html = app.driver.page_source
-            path = repo_dir / f'{label}_page_{ts}.html'
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(html)
-            saved.append(str(path))
-            # also save to repo and package locations for assistant access
             repo_path = repo_dir / f'{label}_page_{ts}.html'
             with open(repo_path, 'w', encoding='utf-8') as f:
                 f.write(html)
             saved.append(str(repo_path))
 
-            pkg_path = pkg_dir / f'{label}_page_{ts}.html'
-            with open(pkg_path, 'w', encoding='utf-8') as f:
-                f.write(html)
-            saved.append(str(pkg_path))
-
             print('Saved debug HTML (repo):', repo_path)
-            print('Also saved debug HTML (package):', pkg_path)
             if out_dir != repo_dir:
                 # keep legacy/configured location as secondary
                 conf_path = out_dir / f'{label}_page_{ts}.html'
@@ -57,17 +45,12 @@ def save_debug(app, label='error'):
 
         # save screenshots
         try:
-            # save screenshots primarily into repo_dir and package dir
+            # save screenshots into the unified output/debug_pages directory
             repo_png = repo_dir / f'{label}_screenshot_{ts}.png'
             app.driver.save_screenshot(str(repo_png))
             saved.append(str(repo_png))
 
-            pkg_png = pkg_dir / f'{label}_screenshot_{ts}.png'
-            app.driver.save_screenshot(str(pkg_png))
-            saved.append(str(pkg_png))
-
             print('Saved screenshot (repo):', repo_png)
-            print('Also saved screenshot (package):', pkg_png)
             if out_dir != repo_dir:
                 conf_png = out_dir / f'{label}_screenshot_{ts}.png'
                 app.driver.save_screenshot(str(conf_png))

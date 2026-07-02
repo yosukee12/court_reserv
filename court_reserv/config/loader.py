@@ -100,4 +100,4 @@ def get_output_base_path():
 
 
 def get_debug_output_dir():
-    return get_output_base_path() / "debug_pages"
+    return REPO_ROOT / "output" / "debug_pages"

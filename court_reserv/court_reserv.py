@@ -7,11 +7,11 @@ import calendar
 import re
 try:
     from .manage_id import Manage_Id as mi
-    from .config import load_config
+    from .config import get_debug_output_dir, load_config
 except Exception:
     # allow running the module as a script (no package context)
     from manage_id import Manage_Id as mi
-    from config import load_config
+    from config import get_debug_output_dir, load_config
 import tkinter as tk
 from tkinter import ttk, messagebox
 from functools import partial
@@ -305,7 +305,7 @@ class Court_Reserv(tk.Frame):
             # Search current document and any iframe documents
             searched = 0
             # prepare debug dir
-            debug_dir = Path(config['PATH']['OUTPUT_CSV_PATH']) / 'debug_pages'
+            debug_dir = get_debug_output_dir()
             debug_dir.mkdir(parents=True, exist_ok=True)
             ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
             # wait for vacancy table to be populated (AJAX)

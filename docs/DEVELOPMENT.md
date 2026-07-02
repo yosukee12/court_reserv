@@ -37,7 +37,13 @@
 
 - `config.example.ini` を参考に `court_reserv/config.ini` を作成する
 - 個人情報や認証情報を含むファイルは Git に追加しない
-- 出力物は `logs/`, `output/`, `debug_pages/` を利用する
+- 出力物は `logs/`, `output/`, `output/debug_pages/` を利用する
+
+## Legacy And Scripts
+
+- `scripts/` には検証用・補助用スクリプトのみを置く
+- `court_reserv/legacy/` には旧実装を退避し、現行実装から参照しない
+- 検証用スクリプトは正式機能化しない限り、GUI の正式起動パスとして扱わない
 
 ## Useful Commands
 

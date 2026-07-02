@@ -27,6 +27,7 @@ output/*
 debug_pages/
 court_reserv/debug_pages/
 */debug_pages/
+output/debug_pages/
 
 # Documentation build artifacts
 docs/_build/

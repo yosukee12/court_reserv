@@ -11,7 +11,7 @@
 ## Current Entry Points
 
 - GUI: `python court_reserv/court_reserv.py`
-- 補助スクリプト: `python run_collect_slots.py`
+- 検証用補助スクリプト: `python scripts/run_collect_slots.py`
 
 ## Directory Overview
 
