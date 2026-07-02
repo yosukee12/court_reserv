@@ -1,0 +1,58 @@
+# Court Reserv
+
+東京都スポーツ施設予約システム向けの個人利用ツールです。現在の実装は Python + Selenium + Tkinter を中心に構成されており、抽選申込み、抽選結果確認、予約確定、空き枠確認を補助します。
+
+## Scope
+
+- 個人利用を前提とした補助ツールです
+- 既存の Selenium / Tkinter ベース実装を段階的に整理していきます
+- 開発は `docs/issues/` 配下の Issue Driven Development で進めます
+
+## Current Entry Points
+
+- GUI: `python court_reserv/court_reserv.py`
+- 補助スクリプト: `python run_collect_slots.py`
+
+## Directory Overview
+
+```text
+court_reserv/
+  browser/    Selenium 関連の分離先
+  config/     設定関連の分離先
+  models/     データ構造の分離先
+  services/   業務ロジックの分離先
+  ui/         Tkinter UI の分離先
+  utils/      共通処理の分離先
+docs/
+  issues/     Issue 管理
+tests/        テスト
+logs/         ログ出力先
+output/       CSV 等の出力先
+scripts/      補助スクリプト
+```
+
+## Setup
+
+1. Python と Google Chrome を用意します
+2. `requirements.txt` を元に依存関係をインストールします
+3. `config.example.ini` を参考にローカル用の `court_reserv/config.ini` を作成します
+4. ChromeDriver のパスと出力先を環境に合わせて設定します
+
+## Current Status
+
+- [x] Project foundation
+- [ ] Security and configuration cleanup
+- [ ] Selenium 4 migration
+- [ ] Architecture refactoring
+- [ ] Reservation strategy engine
+- [ ] Auto reservation
+- [ ] Notification and operations
+
+## Development Policy
+
+- 設計判断は ChatGPT が担当します
+- Codex は Issue に記載された範囲だけを実装します
+- Issue に書かれていない仕様変更は提案までとし、勝手に実装しません
+- 既存動作は Issue に明記がない限り変更しません
+
+詳細は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) と [docs/issues/README.md](docs/issues/README.md) を参照してください。
