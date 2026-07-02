@@ -32,6 +32,7 @@
 - Selenium の実装変更、GUI 変更、予約ロジック変更は明示的な Issue がある場合のみ行う
 - CAPTCHA / reCAPTCHA の回避や自動認証は実装しない
 - reCAPTCHA が表示された場合は手動認証完了まで待機し、その後に処理を継続する前提で実装する
+- 既存の正式起動パスを置き換える場合は、互換エントリーポイントを維持するか、専用 Issue で明示的に廃止する
 
 ## Local Setup
 
@@ -46,6 +47,12 @@
 - `court_reserv/legacy/` には旧実装を退避し、現行実装から参照しない
 - 検証用スクリプトは正式機能化しない限り、GUI の正式起動パスとして扱わない
 - 不要になった検証用スクリプトは削除し、履歴は Git と `legacy/` で追跡する
+
+## Entrypoints
+
+- GUI の正式起動パスは `python court_reserv/court_reserv.py`
+- 新しい module entrypoint を追加する場合でも、互換起動パスは段階的分割が完了するまで維持する
+- entrypoint 整理だけを行う Issue では、`Court_Reserv` の中身を大規模に分割しない
 
 ## Metadata Policy
 

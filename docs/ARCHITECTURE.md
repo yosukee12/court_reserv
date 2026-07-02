@@ -16,6 +16,7 @@
 主なエントリーポイント:
 
 - `court_reserv/court_reserv.py`
+- `court_reserv/ui/app.py`
 
 ## Future Architecture
 
@@ -54,6 +55,13 @@ court_reserv/
 - 先に薄いインターフェースと責務境界を整え、その後で実装を移す
 - 振る舞い変更を伴う整理は、必ず個別 Issue で扱う
 - Selenium の操作順序、Tkinter の見た目、予約ロジックは明示的な Issue が出るまで維持する
+
+## UI Entrypoint Policy
+
+- 既存の互換起動パス `python court_reserv/court_reserv.py` は維持する
+- 新しい UI 層の起動口として `python -m court_reserv.ui.app` を追加する
+- `Court_Reserv` クラス本体は当面 `court_reserv/court_reserv.py` に残し、段階的分割を後続 Issue で進める
+- 起動口整理の段階では Selenium、Tkinter、予約ロジックの振る舞いを変えない
 
 ## Automation Policy
 

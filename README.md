@@ -11,6 +11,7 @@
 ## Current Entry Points
 
 - GUI: `python court_reserv/court_reserv.py`
+- GUI module entrypoint: `python -m court_reserv.ui.app`
 
 ## Directory Overview
 
@@ -27,7 +28,7 @@ docs/
 tests/        テスト
 logs/         ログ出力先
 output/       CSV 等の出力先
-    scripts/      将来の補助スクリプト置き場
+scripts/      将来の補助スクリプト置き場
 ```
 
 ## Setup
@@ -37,6 +38,11 @@ output/       CSV 等の出力先
 3. リポジトリ同梱の `court_reserv/config.ini` を安全なベース設定として確認します
 4. 必要に応じて `config.local.ini` または `.env` を作成し、ローカル固有の設定や認証情報を上書きします
 5. ChromeDriver のパスなど、環境依存の設定をローカルで補完します
+
+## Launch
+
+- 既存 GUI 起動: `python court_reserv/court_reserv.py`
+- 新しい module 起動: `python -m court_reserv.ui.app`
 
 `.env` では次のような値を設定できます。
 

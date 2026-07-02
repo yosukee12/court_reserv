@@ -1406,7 +1406,7 @@ class Court_Reserv(tk.Frame):
     
 def main():
     """
-    main
+    Compatibility GUI entrypoint for `python court_reserv/court_reserv.py`.
     """
     root = tk.Tk()
     cr = Court_Reserv(master=root)
