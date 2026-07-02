@@ -13,3 +13,5 @@ class ReservationPreference:
     preferred_weekdays: list[str] = field(default_factory=list)
     preferred_time_ranges: list[str] = field(default_factory=list)
     preferred_facilities: list[Facility] = field(default_factory=list)
+    preferred_court_names: list[str] = field(default_factory=list)
+    max_candidates: int = 10

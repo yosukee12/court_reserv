@@ -16,3 +16,4 @@ class Slot:
     court_name: str | None = None
     status: str | None = None
     applied_count: str | None = None
+    raw_text: str | None = None

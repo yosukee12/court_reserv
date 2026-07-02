@@ -25,7 +25,8 @@
 ## Phase Status
 
 - Phase 1 は Issue 0016 で完了とする
-- Phase 2 では、既存挙動を維持したまま予約戦略と自動予約基盤を段階的に追加する
+- Phase 2 では、既存挙動を維持したまま抽選申込み自動化を段階的に追加する
+- 空き施設予約は低優先度とし、Phase 2 では主対象にしない
 - Phase 2 の Issue でも、仕様変更を伴う場合は Scope と Out of Scope を明示する
 
 ## Implementation Rules
@@ -125,9 +126,28 @@
 
 ## Phase 2 Working Rules
 
-- Phase 2 では予約戦略エンジン、自動予約、通知基盤を別 Issue で小さく進める
+- Phase 2 では抽選申込み自動化を主対象として小さく進める
 - 既存サービス層の安定動作を優先し、仕様変更と構造整理を同じ Issue で混在させない
 - CAPTCHA / reCAPTCHA の手動認証待機方針は継続する
+- 空き施設予約は低優先度として扱う
+
+## Lottery Guide Rules
+
+- 抽選申込みは利用前月 1 日 0 時から 10 日 23 時 59 分まで
+- 抽選結果確認は利用前月 14 日 0 時以降
+- 当選した場合は利用前月 20 日 23 時 59 分までに確認および当選施設の利用申込みが必要
+- 1 回の抽選につき、種目ごとに 2 件まで
+- 空き施設予約は利用前月 22 日から利用開始時刻までだが、Phase 2 では低優先度
+- 当選後の最終確定はユーザー判断を挟み、完全自動確定は行わない
+
+## Speed Priority Policy
+
+- Phase 2 はスピード重視で進め、完璧な抽象化より早く動く構成を優先する
+- 新規レイヤを増やしすぎず、既存 `LoginService`、`AvailabilityService`、`LotteryService`、`NavigationService` の再利用を優先する
+- dry-run や安全な段階導入を優先し、live 実行は明示的な Issue と確認を前提に進める
+- 通知機能とスケジューラ機能は Phase 2 の対象外とする
+- CAPTCHA / reCAPTCHA は引き続き手動認証待機で扱う
+- Issue 0021 では実際の抽選申込み送信を行わず、候補抽出と順位付けだけを dry-run で確認する
 
 ## Metadata Policy
 

@@ -36,7 +36,7 @@ court_reserv/
 └── config/    設定読込、ローカル設定、環境変数連携
 ```
 
-Phase 1 では構成方針の明文化に加えて、Browser / Service / Model の土台構築と Selenium 4 移行までを完了しました。Phase 2 では、この構成を前提に自動予約基盤へ進みます。
+Phase 1 では構成方針の明文化に加えて、Browser / Service / Model の土台構築と Selenium 4 移行までを完了しました。Phase 2 では、この構成を前提に抽選申込み自動化を優先して進めます。
 
 ## Phase 1 Outcome
 
@@ -49,10 +49,56 @@ Phase 1 では構成方針の明文化に加えて、Browser / Service / Model �
 
 ## Phase 2 Direction
 
-- `models/` を利用した予約候補、優先度、利用者設定の表現強化
-- サービス層の既存挙動を維持したまま、予約戦略エンジンを追加
-- 半自動予約と自動予約を切り替え可能な orchestration 層の設計
+- `models/` を利用した抽選申込み候補、優先度、利用者設定の表現強化
+- サービス層の既存挙動を維持したまま、抽選申込み自動化を追加
+- まずは dry-run と候補提示を整え、その後に抽選申込みワークフローへ進む
+- 空き施設予約は低優先度とし、Phase 3 以降で扱う
 - 通知、監視、運用補助は Phase 3 前提で境界を先に整理
+
+## Lottery Automation Minimal Architecture
+
+Phase 2 の主対象は抽選申込み自動化であり、既存の Browser / Service 層をできるだけ再利用する軽量構成を前提とする。
+
+```text
+Preference Config
+  -> Lottery Candidate Collection
+  -> Lottery Candidate Ranking
+  -> Lottery Automation Dry-run
+  -> Lottery Entry Workflow
+  -> Retry / Recovery
+```
+
+最小フロー:
+
+1. 設定ファイルから希望条件を読み込む
+2. 既存 `AvailabilityService` 由来の候補収集ロジックを流用して候補を収集する
+3. `Slot` モデルへ変換する
+4. 候補を順位付けする
+5. dry-run で候補表示と保存を行う
+6. 次 Issue で既存 `LoginService`、`NavigationService`、`LotteryService` を接続する
+7. CAPTCHA / reCAPTCHA が表示された場合は手動認証待機へ入る
+8. 認証完了後に既存フローを継続する
+
+Phase 2 では、完璧な抽象化や新しい大型レイヤ追加よりも、既存サービスの組み合わせで早く動かすことを優先する。
+
+Issue 0021 では、この最小構成のうち `Preference Config`、`Lottery Candidate Collection`、`Lottery Candidate Ranking`、`Dry-run Runner` を先に実装し、実際の抽選申込み送信にはまだ進まない。
+
+## Lottery Guide
+
+- 抽選申込みは利用前月 1 日 0 時から 10 日 23 時 59 分まで
+- 抽選結果確認は利用前月 14 日 0 時以降
+- 当選した場合は利用前月 20 日 23 時 59 分までに確認および当選施設の利用申込みが必要
+- 1 回の抽選につき、種目ごとに 2 件まで
+- 空き施設予約は利用前月 22 日から利用開始時刻までだが、Phase 2 では低優先度
+
+## Lottery Automation Exclusions
+
+- 通知機能は Phase 2 では扱わない
+- スケジューラ機能は Phase 2 では扱わない
+- CAPTCHA / reCAPTCHA の回避、突破、自動認証は実装しない
+- GUI 起点の操作フローはこの段階では変更しない
+- この段階では実際の抽選申込み送信を行わない
+- 将来的に当選結果確認後の確定候補表示は行ってよいが、最終確定はユーザー判断を挟み、完全自動確定は行わない
 
 ## Directory Responsibilities
 

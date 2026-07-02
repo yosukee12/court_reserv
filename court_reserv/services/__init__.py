@@ -11,10 +11,18 @@ from .lottery import LotteryService
 from .reservation import ReservationService
 from .availability import AvailabilityService
 from .id_manager import IdManagerService
+from .lottery_automation import LotteryAutomationDryRunService, SlotCollectionAdapter
+from .auto_reservation import AutoReservationDryRunService
+from .slot_ranking import RankedSlot, SlotRankingService
 
 __all__ = [
     "LotteryService",
     "ReservationService",
     "AvailabilityService",
     "IdManagerService",
+    "SlotCollectionAdapter",
+    "SlotRankingService",
+    "RankedSlot",
+    "LotteryAutomationDryRunService",
+    "AutoReservationDryRunService",
 ]

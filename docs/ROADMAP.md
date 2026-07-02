@@ -12,16 +12,23 @@
 
 ## Phase 2
 
-- Auto Reservation Architecture
-- Preference Engine
-- Slot Collection
-- Slot Ranking Engine
-- Reservation Workflow
-- Full Auto Reservation
+- Lottery Automation Architecture
+- Preference Config
+- Lottery Candidate Collection
+- Lottery Candidate Ranking
+- Lottery Entry Workflow
+- Lottery Automation Dry-run
 - Retry / Recovery
+- 既存 service 活用を優先した軽量実装
+- dry-run をデフォルトにした段階導入
+- 抽選申込み自動化を優先
+- 空き施設予約は低優先度
+- 通知機能は対象外
+- スケジューラ機能は対象外
 
 ## Phase 3
 
+- Vacant Facility Reservation Improvements
 - Multi Facility
 - Multiple Municipality Support
 - Logging Improvements

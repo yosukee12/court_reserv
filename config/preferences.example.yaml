@@ -1,0 +1,19 @@
+# Auto reservation dry-run preference example
+
+preferred_facilities:
+  - park_name: 府中の森公園
+    facility_name: テニス（人工芝）
+    facility_id: "12700020"
+
+preferred_weekdays:
+  - 土
+  - 日
+
+preferred_time_ranges:
+  - "09:00-11:00"
+  - "11:00-13:00"
+
+preferred_court_names:
+  - "12700020"
+
+max_candidates: 10
