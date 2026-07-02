@@ -7,6 +7,7 @@ from pathlib import Path
 import datetime
 
 from court_reserv.court_reserv import Court_Reserv
+from court_reserv.config import get_default_credentials
 
 
 def save_debug(app, label='error'):
@@ -92,19 +93,24 @@ def main():
     except Exception:
         print('Failed to overwrite app.config OUTPUT_CSV_PATH; proceeding')
 
-    # Test credentials for convenience during development/testing
-    TEST_UID = '10061748'
-    TEST_PWD = 'Nkgwyusk:3821'
+    default_uid, default_pwd = get_default_credentials()
 
     while True:
-        uid = input(f'Login userId [default {TEST_UID}]: ').strip()
-        if not uid:
-            uid = TEST_UID
-            print('Using test user id:', uid)
-        pwd = getpass.getpass('Password (press Enter to use default): ')
-        if not pwd:
-            pwd = TEST_PWD
-            print('Using test password')
+        uid_prompt = 'Login userId'
+        if default_uid:
+            uid_prompt += ' [press Enter to use configured default]'
+        uid = input(f'{uid_prompt}: ').strip()
+        if not uid and default_uid:
+            uid = default_uid
+            print('Using configured default user id')
+
+        pwd_prompt = 'Password'
+        if default_pwd:
+            pwd_prompt += ' (press Enter to use configured default)'
+        pwd = getpass.getpass(f'{pwd_prompt}: ')
+        if not pwd and default_pwd:
+            pwd = default_pwd
+            print('Using configured default password')
 
         try:
             ok = app._login(uid, pwd)

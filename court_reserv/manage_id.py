@@ -2,7 +2,10 @@
 import os
 import csv
 import time
-import configparser
+try:
+    from .config import load_config
+except Exception:
+    from config import load_config
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -15,8 +18,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException
 
 # Config
-config = configparser.ConfigParser()
-config.read('config.ini', encoding='utf-8')
+config = load_config()
 
 # Selenium Options
 options = Options()

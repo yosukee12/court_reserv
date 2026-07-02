@@ -7,6 +7,8 @@
 - 利用者 ID
 - パスワード
 - `config.ini`
+- `config.local.ini`
+- `.env`
 - 生成された CSV
 - `debug_pages/` の HTML / PNG
 - ログファイル
@@ -14,7 +16,8 @@
 ## Rules
 
 - 実際の認証情報をドキュメントやサンプル設定に書かない
-- `config.ini`, `.env`, ログ, CSV, debug HTML は Git 管理対象にしない
+- 認証情報はコードへ直書きせず、`config.local.ini` または `.env` で管理する
+- `config.ini`, `config.local.ini`, `.env`, ログ, CSV, debug HTML は Git 管理対象にしない
 - 画面ダンプには個人情報が含まれる前提で扱う
 - CAPTCHA / reCAPTCHA の回避実装は行わない
 

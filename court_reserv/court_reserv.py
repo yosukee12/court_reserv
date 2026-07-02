@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import configparser
 from pathlib import Path
 import time
 import logging
@@ -8,9 +7,11 @@ import calendar
 import re
 try:
     from .manage_id import Manage_Id as mi
+    from .config import load_config
 except Exception:
     # allow running the module as a script (no package context)
     from manage_id import Manage_Id as mi
+    from config import load_config
 import tkinter as tk
 from tkinter import ttk, messagebox
 from functools import partial
@@ -27,18 +28,14 @@ from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentE
 from bs4 import BeautifulSoup as bs
 
 # Config
-config = configparser.ConfigParser()
-# Load config.ini from package directory (so scripts can run from workspace root)
-_base_dir = Path(__file__).resolve().parent
-_config_path = _base_dir / 'config.ini'
-if not _config_path.exists():
-    raise FileNotFoundError(f'config.ini not found at {_config_path}. Run from package or create config.ini there.')
-config.read(_config_path, encoding='utf-8')
+config = load_config()
 
 # Log
 logfile = config['PATH']['LOG_PATH'] + '/court_reserv.log'
 log_fmt = '%(asctime)s - %(levelname)s - %(message)s'
-logging.basicConfig(filename=logfile, format=log_fmt, level=logging.INFO)
+log_level_name = config.get('LOG', 'LEVEL', fallback='INFO').upper()
+log_level = getattr(logging, log_level_name, logging.INFO)
+logging.basicConfig(filename=logfile, format=log_fmt, level=log_level)
 
 # Output csv path
 check_lottery_csv = config['PATH']['OUTPUT_CSV_PATH'] + '/check_lottery_{0}.csv'.format(datetime.date.today())

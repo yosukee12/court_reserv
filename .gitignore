@@ -12,6 +12,7 @@ env/
 # Local secrets and machine-specific settings
 .env
 config.ini
+config.local.ini
 court_reserv/config.ini
 
 # Generated logs and outputs

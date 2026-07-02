@@ -36,7 +36,20 @@ scripts/      補助スクリプト
 1. Python と Google Chrome を用意します
 2. `requirements.txt` を元に依存関係をインストールします
 3. `config.example.ini` を参考にローカル用の `court_reserv/config.ini` を作成します
-4. ChromeDriver のパスと出力先を環境に合わせて設定します
+4. 必要に応じて `config.local.ini` または `.env` を作成し、ローカル固有の設定や認証情報を上書きします
+5. ChromeDriver のパスと出力先を環境に合わせて設定します
+
+`.env` では次のような値を設定できます。
+
+```bash
+COURT_RESERV_USER_ID=
+COURT_RESERV_PASSWORD=
+COURT_RESERV_CHROME_DRIVER_PATH=
+COURT_RESERV_LOG_PATH=
+COURT_RESERV_OUTPUT_CSV_PATH=
+COURT_RESERV_TOP_URL=
+COURT_RESERV_LOG_LEVEL=INFO
+```
 
 ## Current Status
 
