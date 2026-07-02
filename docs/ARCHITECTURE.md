@@ -60,6 +60,7 @@ court_reserv/
 - Navigation Service は JavaScript 呼び出しと共通画面遷移の集約先とし、抽選や予約の分岐ロジックは含めない
 - Lottery Service は抽選申込み、抽選申込み確認、抽選結果確認の業務フローを集約し、予約確定や空き確認は含めない
 - Reservation Service は予約確定、予約確認の業務フローを集約し、抽選処理や空き確認は含めない
+- Availability Service は空き確認、空き枠収集の業務フローを集約し、抽選処理や予約確定は含めない
 
 ## UI Entrypoint Policy
 
@@ -97,6 +98,12 @@ court_reserv/
 - 予約確定、予約確認は `services/reservation.py` に集約する
 - `Court_Reserv` では Reservation Service を呼び出すだけに留め、抽選処理、空き確認処理、ID 管理処理は維持する
 - 空き確認処理の分離は別 Issue で扱う
+
+## Availability Service Policy
+
+- 空き確認、空き枠収集は `services/availability.py` に集約する
+- `Court_Reserv` では Availability Service を呼び出すだけに留め、抽選処理、予約確定処理、ID 管理処理は維持する
+- 自動予約機能や予約戦略エンジンの追加は別 Issue で扱う
 
 ## Automation Policy
 

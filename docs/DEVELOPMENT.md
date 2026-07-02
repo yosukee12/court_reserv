@@ -38,6 +38,7 @@
 - Navigation 分離 Issue では、JavaScript 呼び出しと共通画面遷移だけを切り出し、抽選・予約・空き確認ロジックは変更しない
 - Lottery Service 分離 Issue では、抽選申込み系フローだけを切り出し、予約確定・空き確認・ID 管理は変更しない
 - Reservation Service 分離 Issue では、予約確定・予約確認だけを切り出し、抽選・空き確認・ID 管理は変更しない
+- Availability Service 分離 Issue では、空き確認・空き枠収集だけを切り出し、抽選・予約確定・ID 管理は変更しない
 
 ## Local Setup
 
@@ -88,6 +89,12 @@
 - 予約確定、予約確認は `court_reserv/services/reservation.py` に集約する
 - `Court_Reserv` 側には UI イベントハンドラと最小限の委譲だけを残す
 - 空き確認処理や ID 管理処理の切り出しは別 Issue で扱う
+
+## Availability Service
+
+- 空き確認、空き枠収集は `court_reserv/services/availability.py` に集約する
+- `Court_Reserv` 側には UI イベントハンドラと最小限の委譲だけを残す
+- 自動予約機能や予約戦略エンジンの追加は別 Issue で扱う
 
 ## Metadata Policy
 

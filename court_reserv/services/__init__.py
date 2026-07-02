@@ -9,5 +9,6 @@ Issue 0003 only documents the boundary and does not move existing logic.
 
 from .lottery import LotteryService
 from .reservation import ReservationService
+from .availability import AvailabilityService
 
-__all__ = ["LotteryService", "ReservationService"]
+__all__ = ["LotteryService", "ReservationService", "AvailabilityService"]

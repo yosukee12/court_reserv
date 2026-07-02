@@ -9,13 +9,13 @@ try:
     from .manage_id import Manage_Id as mi
     from .config import get_debug_output_dir, load_config
     from .browser import BrowserSession, LoginService, NavigationService
-    from .services import LotteryService, ReservationService
+    from .services import LotteryService, ReservationService, AvailabilityService
 except Exception:
     # allow running the module as a script (no package context)
     from manage_id import Manage_Id as mi
     from config import get_debug_output_dir, load_config
     from browser import BrowserSession, LoginService, NavigationService
-    from services import LotteryService, ReservationService
+    from services import LotteryService, ReservationService, AvailabilityService
 import tkinter as tk
 from tkinter import ttk, messagebox
 from functools import partial
@@ -88,6 +88,14 @@ class Court_Reserv(tk.Frame):
             logger=logging,
             get_id_dict_from_csv=mi.get_id_dict_from_csv,
             output_id_dict=mi.output_csv_from_id_dict,
+            sleep_func=time.sleep,
+        )
+        self.availability_service = AvailabilityService(
+            config=config,
+            browser_session=self.browser_session,
+            navigation_service=self.navigation_service,
+            logger=logging,
+            get_debug_output_dir=get_debug_output_dir,
             sleep_func=time.sleep,
         )
         self.driver = None
@@ -211,275 +219,11 @@ class Court_Reserv(tk.Frame):
         抽選申込み画面の週毎ページを巡回して、見つかる全ての空き日時を収集してCSVに保存する。
         戻り値: list of slot strings
         """
-        slots = []
-        try:
-            # helper to extract date+time combos from html text
-            def extract_from_html(html_text):
-                found = set()
-                # look for patterns like "6月10日 ... 10時30分" or "6月10日"
-                for m in re.findall(r"\d{1,2}月\d{1,2}日[^\n\r]{0,80}(?:\d{1,2}時[^\n\r]{0,40}分)?", html_text):
-                    found.add(m.strip())
-                return found
-
-            # Search current document and any iframe documents
-            searched = 0
-            # prepare debug dir
-            debug_dir = get_debug_output_dir()
-            debug_dir.mkdir(parents=True, exist_ok=True)
-            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            # wait for vacancy table to be populated (AJAX)
-            try:
-                self._get_wait(8).until(
-                    lambda d: d.find_element(By.CSS_SELECTOR, '#usedate-table tbody').get_attribute('innerHTML').strip() != ''
-                )
-            except Exception:
-                # fallback: wait until loading indicator is gone
-                try:
-                    self._get_wait(8).until(
-                        lambda d: d.find_element(By.ID, 'usedate-loading').get_attribute('style').find('display: none') != -1
-                    )
-                except Exception:
-                    pass
-            # try current page — prefer parsing the vacancy calendar table
-            try:
-                self._get_wait(6).until(
-                    lambda d: d.find_element(By.CSS_SELECTOR, '#usedate-table tbody')
-                )
-            except Exception:
-                pass
-
-            html = self.driver.page_source
-            # save main page html for inspection
-            try:
-                main_path = debug_dir / f'page_main_{ts}.html'
-                with open(main_path, 'w', encoding='utf-8') as fh:
-                    fh.write(html)
-                print('Saved debug HTML:', main_path)
-            except Exception:
-                logging.exception('Failed to save main page HTML')
-
-            # Parse the calendar table directly using Selenium DOM (more reliable than regex)
-            slots_set = set()
-            try:
-                # gather header dates
-                def parse_current_table_and_add():
-                    header_inputs = self.driver.find_elements(By.CSS_SELECTOR, '#usedate-table thead input[name="selectUseYMD"]')
-                    dates = [h.get_attribute('value') for h in header_inputs]
-                    rows = self.driver.find_elements(By.CSS_SELECTOR, '#usedate-table tbody tr')
-                    for row in rows:
-                        try:
-                            time_label = row.find_element(By.TAG_NAME, 'th').text.strip()
-                        except Exception:
-                            time_label = ''
-                        tds = row.find_elements(By.TAG_NAME, 'td')
-                        for idx, td in enumerate(tds):
-                            try:
-                                ymd = dates[idx] if idx < len(dates) else ''
-                                koma = td.find_element(By.CSS_SELECTOR, 'input[name="selectKomaNo"]').get_attribute('value')
-                                stime = td.find_element(By.CSS_SELECTOR, 'input[name="selectStime"]').get_attribute('value')
-                                etime = td.find_element(By.CSS_SELECTOR, 'input[name="selectEtime"]').get_attribute('value')
-                                field = td.find_element(By.CSS_SELECTOR, 'input[name="selectField"]').get_attribute('value')
-                                # applied count shown in bold
-                                applied = ''
-                                try:
-                                    applied = td.find_element(By.CSS_SELECTOR, 'span.font-weight-bold').text.strip()
-                                except Exception:
-                                    txt = td.text.strip()
-                                    m = re.findall(r"\d+", txt)
-                                    applied = m[-1] if m else ''
-
-                                slot_str = f"{ymd} {time_label} {stime}-{etime} fields:{field} applied:{applied}"
-                                # filter by weekday if requested (Monday=0 ... Sunday=6). Saturday==5
-                                if only_weekday is not None and ymd:
-                                    try:
-                                        d = datetime.datetime.strptime(ymd, '%Y%m%d')
-                                        if d.weekday() != int(only_weekday):
-                                            continue
-                                    except Exception:
-                                        # if parse failed, skip filtering for this item
-                                        pass
-                                slots_set.add(slot_str)
-                            except Exception:
-                                continue
-                    return dates
-
-                # determine target month end from srchStartYMD hidden input
-                try:
-                    srch_start = self.driver.find_element(By.NAME, 'srchStartYMD').get_attribute('value')
-                    year = int(srch_start[0:4])
-                    month = int(srch_start[4:6])
-                    month_end_day = calendar.monthrange(year, month)[1]
-                    target_month_end = f"{year}{month:02d}{month_end_day:02d}"
-                except Exception:
-                    target_month_end = None
-
-                # parse first page
-                curr_dates = parse_current_table_and_add()
-
-                # if we know the target month end, paginate until we cover it
-                if target_month_end:
-                    iterations = 0
-                    while True:
-                        iterations += 1
-                        # get current max date displayed
-                        try:
-                            max_display = max(curr_dates) if curr_dates else None
-                        except Exception:
-                            max_display = None
-                        if max_display and max_display >= target_month_end:
-                            break
-                        if iterations > weeks_limit:
-                            break
-                        # click next-week button
-                        try:
-                            btn = self.driver.find_element(By.ID, 'next-week')
-                            btn.click()
-                        except Exception:
-                            # fallback: try clicking by onclick anchors
-                            try:
-                                anchors = self.driver.find_elements(By.XPATH, "//a[@onclick]")
-                                clicked = False
-                                for a in anchors:
-                                    onclick = a.get_attribute('onclick') or ''
-                                    if 'Next' in onclick or 'next' in onclick or 'doNextWeek' in onclick or 'week' in onclick:
-                                        try:
-                                            a.click()
-                                            clicked = True
-                                            break
-                                        except Exception:
-                                            continue
-                                if not clicked:
-                                    break
-                            except Exception:
-                                break
-                        # wait for table update (header dates change)
-                        try:
-                            self._get_wait(6).until(lambda d: d.find_element(By.CSS_SELECTOR, '#usedate-table thead input[name="selectUseYMD"]').get_attribute('value') != (curr_dates[0] if curr_dates else ''))
-                        except Exception:
-                            time.sleep(0.5)
-                        # save paged html
-                        try:
-                            page_idx = iterations
-                            page_path = debug_dir / f'page_{page_idx}_{ts}.html'
-                            with open(page_path, 'w', encoding='utf-8') as pf:
-                                pf.write(self.driver.page_source)
-                            print('Saved debug HTML:', page_path)
-                        except Exception:
-                            logging.exception('Failed to save paged HTML')
-                        # parse new page and continue
-                        try:
-                            curr_dates = parse_current_table_and_add()
-                        except Exception:
-                            break
-                else:
-                    # unknown month end -> parse current page only
-                    pass
-            except Exception:
-                # if DOM parsing failed, fallback to regex search across page and frames
-                logging.exception('DOM parsing of calendar failed, falling back to regex')
-                slots_set.update(extract_from_html(html))
-                frames = self.driver.find_elements(By.TAG_NAME, 'iframe')
-                for f in frames:
-                    try:
-                        self.driver.switch_to.frame(f)
-                        fh = self.driver.page_source
-                        # save iframe html
-                        try:
-                            frame_idx = frames.index(f)
-                            frame_path = debug_dir / f'iframe_{frame_idx}_{ts}.html'
-                            with open(frame_path, 'w', encoding='utf-8') as ff:
-                                ff.write(fh)
-                            print('Saved debug HTML:', frame_path)
-                        except Exception:
-                            logging.exception('Failed to save iframe HTML')
-                        slots_set.update(extract_from_html(fh))
-                        self.driver.switch_to.default_content()
-                    except Exception:
-                        try:
-                            self.driver.switch_to.default_content()
-                        except Exception:
-                            pass
-            # if nothing found yet, attempt to paginate weekly pages (best-effort)
-            if not slots_set:
-                for i in range(weeks_limit):
-                    time.sleep(0.5)
-                    html = self.driver.page_source
-                    # save paginated page for debugging
-                    try:
-                        page_path = debug_dir / f'page_{i}_{ts}.html'
-                        with open(page_path, 'w', encoding='utf-8') as pf:
-                            pf.write(html)
-                        print('Saved debug HTML:', page_path)
-                    except Exception:
-                        logging.exception('Failed to save paged HTML')
-                    slots_set.update(extract_from_html(html))
-                    # attempt several types of next controls
-                    clicked = False
-                    try:
-                        # anchors with onclick
-                        anchors = self.driver.find_elements(By.XPATH, "//a[@onclick]")
-                        for a in anchors:
-                            onclick = a.get_attribute('onclick') or ''
-                            if 'next' in onclick or 'Next' in onclick or 'week' in onclick:
-                                try:
-                                    a.click()
-                                    clicked = True
-                                    break
-                                except Exception:
-                                    continue
-                        if not clicked:
-                            # fallback: links with caret or next text
-                            for txt in ("次へ", "次", ">", ">>"):
-                                try:
-                                    el = self.driver.find_element(By.LINK_TEXT, txt)
-                                    el.click()
-                                    clicked = True
-                                    break
-                                except Exception:
-                                    continue
-                    except Exception:
-                        clicked = False
-                    if not clicked:
-                        break
-
-            # sort slots by ymd then numeric start time (avoid unicode string order issues)
-            slots = []
-            entries = []
-            for s in slots_set:
-                m = re.match(r'^(?P<ymd>\d{8}).*?(?P<stime>\d{1,4})-(?P<etime>\d{1,4})', s)
-                if m:
-                    ymd = m.group('ymd')
-                    try:
-                        stime = int(m.group('stime'))
-                    except Exception:
-                        stime = 9999
-                else:
-                    # fallback: put unknowns at end
-                    ymd = ''
-                    stime = 9999
-                entries.append((ymd, stime, s))
-            entries.sort(key=lambda t: (t[0], t[1]))
-            slots = [t[2] for t in entries]
-
-        except Exception:
-            logging.exception("空き日時収集中に例外が発生しました")
-
-        # save to CSV
-        out_path = config['PATH']['OUTPUT_CSV_PATH'] + '/available_slots_{0}.csv'.format(datetime.date.today())
-        try:
-            import csv
-            with open(out_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(['slot'])
-                for s in slots:
-                    writer.writerow([s])
-        except Exception:
-            logging.exception("空き日時CSVの保存に失敗しました")
-
-        print('Saved available slots to: ' + out_path)
-        if not slots:
-            print('No slots found')
-        return slots
+        return self.availability_service.collect_all_available_slots(
+            self.driver,
+            weeks_limit=weeks_limit,
+            only_weekday=only_weekday,
+        )
 
     def prompt_user_to_select_slots(self, slots, max_select=2):
         """
@@ -645,27 +389,7 @@ class Court_Reserv(tk.Frame):
         """
         コートの空き状況をチェック
         """
-        # Chromeドライバーの起動
-        self.driver = self.browser_session.create_driver()
-        self.driver.get(top_url)
-        # フレーム移動
-        self.driver.switch_to.frame("pawae1002")
-        # 空き状況ページへ移動
-        self.navigation_service.go_to_vacant_search(self.driver)
-        try:
-            self.driver.find_element_by_name("monthGif" + month).click() # 月選択
-        except:
-            print("対象月が存在しません")
-            self.browser_session.safe_quit(self.driver)
-            self.driver = None
-            exit()
-        # 曜日選択 土曜固定
-        self.driver.find_element_by_name("weektype5").click()
-        self.navigation_service.select_weekly_vacant_conditions(self.driver)
-        # 場所選択 府中の森固定
-        self.driver.find_element_by_name("gifName23").click()
-        print(self.driver.page_source)
-        # TODO ページの保存
+        return self.availability_service.check_court(month)
         
     
 def main():
