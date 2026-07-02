@@ -36,6 +36,7 @@
 - 基盤切り出し Issue では、WebDriver 生成や待機処理のような共通部だけを分離し、ログイン・予約・画面遷移の中身は変更しない
 - ログイン分離 Issue では、ログイン処理と CAPTCHA 手動待機だけを切り出し、抽選・予約・画面遷移ロジックは変更しない
 - Navigation 分離 Issue では、JavaScript 呼び出しと共通画面遷移だけを切り出し、抽選・予約・空き確認ロジックは変更しない
+- Lottery Service 分離 Issue では、抽選申込み系フローだけを切り出し、予約確定・空き確認・ID 管理は変更しない
 
 ## Local Setup
 
@@ -74,6 +75,12 @@
 - JavaScript 実行と共通画面遷移は `court_reserv/browser/navigation.py` に集約する
 - `Court_Reserv` 側には最小限の委譲だけを残し、業務ロジックの順序や条件分岐は維持する
 - 画面要素の詳細なラップやページ単位の再設計は別 Issue で扱う
+
+## Lottery Service
+
+- 抽選申込み、抽選申込み状況確認、抽選当選結果確認は `court_reserv/services/lottery.py` に集約する
+- `Court_Reserv` 側には UI イベントハンドラと最小限の委譲だけを残す
+- 予約確定処理や空き確認処理の切り出しは別 Issue で扱う
 
 ## Metadata Policy
 

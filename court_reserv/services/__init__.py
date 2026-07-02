@@ -6,3 +6,7 @@ layers.
 
 Issue 0003 only documents the boundary and does not move existing logic.
 """
+
+from .lottery import LotteryService
+
+__all__ = ["LotteryService"]

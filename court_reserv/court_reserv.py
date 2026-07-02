@@ -9,11 +9,13 @@ try:
     from .manage_id import Manage_Id as mi
     from .config import get_debug_output_dir, load_config
     from .browser import BrowserSession, LoginService, NavigationService
+    from .services import LotteryService
 except Exception:
     # allow running the module as a script (no package context)
     from manage_id import Manage_Id as mi
     from config import get_debug_output_dir, load_config
     from browser import BrowserSession, LoginService, NavigationService
+    from services import LotteryService
 import tkinter as tk
 from tkinter import ttk, messagebox
 from functools import partial
@@ -67,6 +69,16 @@ class Court_Reserv(tk.Frame):
         )
         self.navigation_service = NavigationService(
             wait_factory=self.browser_session.get_wait,
+            sleep_func=time.sleep,
+        )
+        self.lottery_service = LotteryService(
+            config=config,
+            browser_session=self.browser_session,
+            login_service=self.login_service,
+            navigation_service=self.navigation_service,
+            logger=logging,
+            show_info=messagebox.showinfo,
+            output_id_dict=mi.output_csv_from_id_dict,
             sleep_func=time.sleep,
         )
         self.driver = None
@@ -543,143 +555,9 @@ class Court_Reserv(tk.Frame):
         IDリストを引数にして
         半自動抽選申込み. 抽選申込み日の選択と申込みは手動
         """
-        # 引数でID dictを指定しない場合
         if not id_dict:
             id_dict = self.id_dict
-        # 申し込み人数カウント用
-        list_count = 1
-        # Chromeドライバーの起動
-        self.driver = self.browser_session.create_driver()
-        for k, v in id_dict.items():
-            reserv_count = 0
-            self.driver.get(config['URL']['TOP_URL'])
-            print("申し込み " + str(list_count) + "人目/" + str(len(id_dict)) + "人" + v[0])
-            try:
-                # ログインページへ移動
-                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
-                self.driver.find_element(By.NAME,"userId").send_keys(k)
-                self.driver.find_element(By.NAME,"password").send_keys(v[2])
-                # ログイン
-                time.sleep(0.5)
-                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
-            except UnexpectedAlertPresentException:
-                print("ID:" + k + " 期限切れ")
-                logging.warning("ID:" + k + " 期限切れ")
-                continue
-
-            # # 有効期限が近づいている画面が出た場合
-            # if "お知らせ画面" in self.driver.title:
-            #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
-            #     logging.warn("ID:" + k + " 期限が近くなっています")
-
-            # if "伝言表示画面" in self.driver.title:
-            #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
-            #     logging.warn("ID:" + k + " 伝言アリ")
-            logging.info("ID:" + k + " ログイン")
-
-            if "ホーム画面" in self.driver.title:
-                # 抽選申し込み画面へ
-                self.driver.execute_script("javascript:doAction(document.form1, gLotWOpeLotSearchAction);")
-                # 種目選択（テニス（人工芝））
-                self.driver.execute_script("javascript:doLotEntry('130');")
-                time.sleep(1)
-
-                # 公園選択（府中の森公園）
-                Select(self.driver.find_element(By.ID,"bname")).select_by_value("1301270")
-                # time.sleep(1)
-                self.driver.execute_script("changeBname(document.form1);")
-
-                wait = self._get_wait(10)
-                wait.until(lambda d: any(
-                    opt.get_attribute("value") == "12700020"
-                    for opt in Select(d.find_element(By.ID, "iname")).options
-                    ))
-                # 種目選択2回目（テニス（人工芝））
-                Select(self.driver.find_element(By.ID,"iname")).select_by_value("12700020")
-
-                # # 公園選択（大井ふ頭Bオムニ）
-                # Select(self.driver.find_element(By.ID,"bname")).select_by_value("1301315")
-                # time.sleep(1)
-                # # 種目選択2回目（テニス（人工芝））
-                # Select(self.driver.find_element(By.ID,"iname")).select_by_value("13150110")
-
-
-                # # 種目選択（テニス（ハード））
-                # self.driver.execute_script("javascript:doLotEntry('120');")
-
-                # # 公園選択（大井ふ頭Bハード）
-                # Select(self.driver.find_element(By.ID,"bname")).select_by_value("1201315")
-                # time.sleep(1)
-                # # 種目選択2回目（テニス（ハード））
-                # Select(self.driver.find_element(By.ID,"iname")).select_by_value("13150050")
-
-                while reserv_count < 2:
-                    # 申し込み中処理（手動申し込み）
-                    time.sleep(0.5)
-                    try:
-                        if "東京都スポーツ施設サービス" in self.driver.title:
-                            logging.info("ID:" + k + " ログアウト")
-                            break
-                        elif "申込内容確認画面" in self.driver.title:
-                            reserv_count += 1
-                            soup = bs(self.driver.page_source, 'html.parser')
-                            # Beautiful soupで申込み日と時間の取得
-                            foundlist = [elem.string for elem in soup.find_all('td', string=['年', '月', '日', '時', '分'])]
-                            if reserv_count == 1:
-                                # 申し込み番号入力（1件目）
-                                time.sleep(0.3)
-                                Select(self.driver.find_element(By.ID,"apply")).select_by_value("1-1")
-                                time.sleep(0.2)
-                            elif reserv_count == 2:
-                                time.sleep(0.3)
-                                Select(self.driver.find_element(By.ID,"apply")).select_by_value("2-1")
-                                time.sleep(0.2)
-                            # 申込み実行 → reCAPTCHA が出る可能性があるため手動クリックを促し、
-                            # 出た場合はブラウザでの認証を待機する
-                            # Show a GUI prompt only if captcha is present; otherwise print a terminal hint
-                            try:
-                                if self._detect_captcha():
-                                    messagebox.showinfo('手動操作が必要です', '申込み実行画面が表示されました。画面上で申込み実行を手動で実施してください。reCAPTCHAが表示された場合はブラウザ上で認証してください。')
-                                else:
-                                    print('Manual submit required: please click submit in the browser. If reCAPTCHA appears, solve it manually.')
-                            except Exception:
-                                print('Manual submit required: please click submit in the browser. If reCAPTCHA appears, solve it manually.')
-
-                            # wait for completion; if captcha appears at any point, prompt user to solve
-                            while not "抽選メール送信完了画面" in self.driver.title:
-                                try:
-                                    # if captcha detected, ask user to solve it before continuing
-                                    try:
-                                        if self._detect_captcha():
-                                            solved = self._wait_for_captcha_solve()
-                                            if not solved:
-                                                logging.warning('User cancelled captcha solving; aborting this reservation')
-                                                break
-                                    except Exception:
-                                        pass
-
-                                    # ポップアップ処理
-                                    self._get_wait(60).until(EC.alert_is_present(),
-                                                            'Timed out waiting for PA creation ' +
-                                                            'confirmation popup to appear.')
-                                    alert = self.driver.switch_to.alert
-                                    alert.accept()
-                                    self._get_wait(1).until(EC.alert_is_present(),
-                                                            'Timed out waiting for PA creation ' +
-                                                            'confirmation popup to appear.')
-                                    time.sleep(0.3)
-                                except (TimeoutException, UnexpectedAlertPresentException):
-                                    continue
-                            print("reserved: ID = " + k + ", reserv_count = " + str(reserv_count))
-                    except TimeoutException or UnexpectedAlertPresentException:
-                        continue
-            list_count += 1
-            time.sleep(0.5)
-            # ログアウト
-            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
-            time.sleep(0.5)
-        self.browser_session.safe_close(self.driver)
-        self.driver = None
+        self.lottery_service.semiauto_reserv(id_dict)
 
     def full_auto_reserv(self, id_dict={}, max_attempts=2):
         """
@@ -688,67 +566,7 @@ class Court_Reserv(tk.Frame):
         """
         if not id_dict:
             id_dict = self.id_dict
-        list_count = 1
-        self._start_driver()
-        for k, v in id_dict.items():
-            reserv_count = 0
-            print("自動申し込み " + str(list_count) + "人目/" + str(len(id_dict)) + "人" + v[0])
-            if not self._login(k, v[2]):
-                continue
-            logging.info("ID:%s ログイン", k)
-
-            if "ホーム画面" in self.driver.title:
-                try:
-                    self._navigate_to_lottery_entry()
-                    # 申込内容確認画面が表示されるのを待ち、見つかれば自動で送信する
-                    while reserv_count < max_attempts:
-                        time.sleep(0.5)
-                        if "申込内容確認画面" in self.driver.title:
-                            reserv_count += 1
-                            # 申し込み番号入力
-                            sel_val = f"{reserv_count}-1"
-                            Select(self.driver.find_element(By.ID, "apply")).select_by_value(sel_val)
-                            time.sleep(0.2)
-                            # 申込み実行（可能なら自動でクリック）
-                            try:
-                                try:
-                                    if self._detect_captcha():
-                                        ok = self._wait_for_captcha_solve()
-                                        if not ok:
-                                            logging.warning("ID:%s captcha not solved, aborting auto apply", k)
-                                            break
-                                except Exception:
-                                    pass
-                                self.driver.execute_script("javascript:sendLotApply(document.form1, gLotWInstLotApplyAction, event);")
-                            except Exception:
-                                logging.warning("ID:%s 自動申込みスクリプト実行に失敗", k)
-                            # ポップアップ処理
-                            try:
-                                self._get_wait(60).until(EC.alert_is_present())
-                                alert = self.driver.switch_to.alert
-                                alert.accept()
-                            except TimeoutException:
-                                logging.warning("ID:%s 申込み確認ポップアップが表示されませんでした", k)
-                            # 完了画面になるのを待つ（短時間）
-                            try:
-                                self._get_wait(10).until(lambda d: "抽選メール送信完了画面" in d.title)
-                            except Exception:
-                                logging.info("ID:%s 抽選送信完了画面への遷移を確認できませんでした", k)
-                            print("reserved: ID = " + k + ", reserv_count = " + str(reserv_count))
-                        elif "東京都スポーツ施設サービス" in self.driver.title:
-                            logging.info("ID:%s ログアウト検出", k)
-                            break
-                        else:
-                            time.sleep(0.5)
-                except Exception as e:
-                    logging.exception("ID:%s 自動申込み中に例外", k)
-
-            list_count += 1
-            time.sleep(0.5)
-            self._logout()
-            time.sleep(0.5)
-        self.browser_session.safe_close(self.driver)
-        self.driver = None
+        self.lottery_service.full_auto_reserv(id_dict, max_attempts=max_attempts)
 
     def auto_select_and_submit_slots(self, selected_slots, submit=True, wait_alert_seconds=10):
         """
@@ -756,211 +574,12 @@ class Court_Reserv(tk.Frame):
         Attempts to select matching slots on the current calendar page and optionally submit the application.
         Returns dict {slot: True/False} indicating whether selection was applied for each slot.
         """
-        result = {}
-        if not getattr(self, 'driver', None):
-            raise RuntimeError('Driver not started')
-
-        for s in selected_slots:
-            # parse ymd and stime
-            parts = s.split()
-            ymd = parts[0] if parts else ''
-            stime = ''
-            # find pattern like 900-1100 after time label
-            for p in parts:
-                if '-' in p and p.split('-')[0].isdigit():
-                    stime = p.split('-')[0]
-                    break
-            # ensure the week containing ymd is displayed (try paginating)
-            if ymd:
-                try:
-                    attempts = 0
-                    print(f"[debug] Ensure week for {ymd} is displayed")
-                    while attempts < 10:
-                        attempts += 1
-                        headers = self.driver.execute_script("return Array.from(document.querySelectorAll('#usedate-table thead input[name=\"selectUseYMD\"]')).map(h=>h.value);")
-                        print(f"[debug] attempt {attempts}, headers={headers}")
-                        if ymd in headers:
-                            print(f"[debug] target {ymd} found in headers")
-                            break
-                        # decide direction: if ymd > max -> click next, if ymd < min -> click prev
-                        if headers:
-                            try:
-                                min_h = min(headers)
-                                max_h = max(headers)
-                                print(f"[debug] min_h={min_h}, max_h={max_h}")
-                                if ymd > max_h:
-                                    # next-week
-                                    print('[debug] clicking next-week')
-                                    try:
-                                        self.driver.execute_script("document.getElementById('next-week').click();")
-                                    except Exception:
-                                        try:
-                                            self.driver.execute_script("doNextWeek(document.form1, gLotWTransLotInstSrchVacantAjaxAction);")
-                                        except Exception:
-                                            print('[debug] next-week click failed')
-                                elif ymd < min_h:
-                                    print('[debug] clicking last-week')
-                                    try:
-                                        self.driver.execute_script("document.getElementById('last-week').click();")
-                                    except Exception:
-                                        try:
-                                            self.driver.execute_script("doPrevWeek(document.form1, gLotWTransLotInstSrchVacantAjaxAction);")
-                                        except Exception:
-                                            print('[debug] last-week click failed')
-                                else:
-                                    # not in current range, attempt next
-                                    print('[debug] not in range, clicking next-week')
-                                    try:
-                                        self.driver.execute_script("document.getElementById('next-week').click();")
-                                    except Exception:
-                                        try:
-                                            self.driver.execute_script("doNextWeek(document.form1, gLotWTransLotInstSrchVacantAjaxAction);")
-                                        except Exception:
-                                            print('[debug] fallback next-week click failed')
-                            except Exception as e:
-                                print(f'[debug] header compare failed: {e}')
-                                try:
-                                    self.driver.execute_script("document.getElementById('next-week').click();")
-                                except Exception:
-                                    pass
-                        time.sleep(0.6)
-                    print(f"[debug] finished pagination attempts for {ymd}")
-                except Exception:
-                    pass
-            js = """
-            (function(ymd, stime) {
-                var info = {found:false, idx:-1, clicked:false, reason:''};
-                try {
-                    var headers = Array.from(document.querySelectorAll('#usedate-table thead input[name="selectUseYMD"]')).map(h=>h.value);
-                    for (var i=0;i<headers.length;i++){
-                        if (headers[i] === ymd){ info.idx = i; break; }
-                    }
-                    if (info.idx === -1){ info.reason='ymd not in headers'; return info; }
-                    var rows = document.querySelectorAll('#usedate-table tbody tr');
-                    for (var r=0;r<rows.length;r++){
-                        var tds = rows[r].querySelectorAll('td');
-                        var td = tds[info.idx];
-                        if (!td) continue;
-                        var st = td.querySelector('input[name="selectStime"]');
-                        if (st){
-                            try{
-                                if (parseInt(st.value,10) === parseInt(stime,10)){
-                                    info.found = true;
-                                    // try to click the cell or inner number element
-                                    try{ td.click(); info.clicked = true; }catch(e){}
-                                    try{
-                                        var num = td.querySelector('span.font-weight-bold');
-                                        if(num){ num.click(); info.clicked = true; }
-                                    }catch(e){}
-                                    // also set checkboxes so state is consistent
-                                    try{ Array.from(td.querySelectorAll('input[type=checkbox]')).forEach(c=>c.checked=true); }catch(e){}
-                                    try{ document.querySelectorAll('#usedate-table thead input[name="selectUseYMD"]')[info.idx].checked = true; }catch(e){}
-                                    return info;
-                                }
-                            }catch(e){ }
-                        }
-                    }
-                    info.reason='no matching stime in cells';
-                    return info;
-                } catch(e) { info.reason='exception:'+e; return info; }
-            })(arguments[0], arguments[1]);
-            """
-            try:
-                # return JSON string for reliable serialization
-                # ensure the JS IIFE does not leave a trailing semicolon inside the
-                # JSON.stringify wrapper which causes `Unexpected token ';'`.
-                clean_js = js.rstrip()
-                if clean_js.endswith(';'):
-                    clean_js = clean_js[:-1]
-                json_js = 'return JSON.stringify(' + clean_js + ');'
-                info_str = self.driver.execute_script(json_js, ymd, stime)
-                import json as _json
-                try:
-                    info = _json.loads(info_str) if info_str else None
-                except Exception:
-                    info = None
-                print(f"[debug] select attempt for {s}: {info}")
-                ok = bool(info and info.get('found', False))
-            except Exception as e:
-                print(f"[debug] execute_script failed: {e}")
-                ok = False
-            result[s] = ok
-
-        # submit if requested and at least one selection succeeded
-        if submit and any(result.values()):
-            try:
-                # open the confirmation/apply flow
-                try:
-                    self.navigation_service.go_to_temp_apply(self.driver)
-                except Exception:
-                    try:
-                        btn = self.driver.find_element(By.ID, 'btn-go')
-                        btn.click()
-                    except Exception:
-                        pass
-
-                # Count how many slots were successfully selected
-                success_count = sum(1 for v in result.values() if v)
-
-                # For each successful slot, wait for the confirmation page, set the apply select,
-                # then execute the final apply action (matching semiauto_reserv behavior)
-                applied = 0
-                for i in range(success_count):
-                    try:
-                        self._get_wait(wait_alert_seconds).until(lambda d: '申込内容確認画面' in d.title)
-                    except Exception:
-                        # if confirmation page doesn't appear, try short sleep and continue
-                        time.sleep(0.5)
-                    try:
-                        applied += 1
-                        sel_val = f"{applied}-1"
-                        try:
-                            Select(self.driver.find_element(By.ID, 'apply')).select_by_value(sel_val)
-                        except Exception:
-                            logging.warning('apply select not found to set %s', sel_val)
-                        time.sleep(0.2)
-                        try:
-                            # If captcha present, prompt user to solve before submitting
-                            try:
-                                if self._detect_captcha():
-                                    ok = self._wait_for_captcha_solve()
-                                    if not ok:
-                                        logging.warning('User cancelled captcha handling; aborting apply loop')
-                                        break
-                            except Exception:
-                                pass
-                            self.driver.execute_script("javascript:sendLotApply(document.form1, gLotWInstLotApplyAction, event);")
-                        except Exception:
-                            # fallback: try clicking a known apply button if present
-                            try:
-                                btn_apply = self.driver.find_element(By.ID, 'btn-apply')
-                                btn_apply.click()
-                            except Exception:
-                                pass
-
-                        # handle confirmation alert
-                        try:
-                            self._get_wait(wait_alert_seconds).until(EC.alert_is_present())
-                            alert = self.driver.switch_to.alert
-                            alert_text = alert.text
-                            alert.accept()
-                            logging.info('Accepted confirmation alert: %s', alert_text)
-                        except Exception:
-                            logging.info('No confirmation alert appeared for apply %s', sel_val)
-
-                        # wait for completion page briefly
-                        try:
-                            self._get_wait(10).until(lambda d: '抽選メール送信完了画面' in d.title)
-                        except Exception:
-                            # not fatal; continue to next apply
-                            pass
-                    except Exception:
-                        logging.exception('Error during confirmation/apply loop')
-                        break
-            except Exception:
-                logging.exception('Error during submit')
-
-        return result
+        return self.lottery_service.auto_select_and_submit_slots(
+            self.driver,
+            selected_slots,
+            submit=submit,
+            wait_alert_seconds=wait_alert_seconds,
+        )
 
     def check_lottery(self, id_dict={}, output_csv_path=""):
         """
@@ -970,74 +589,9 @@ class Court_Reserv(tk.Frame):
             {ID, [名前(漢字),名前(カタカナ),パスワード(生年月日),申込日1,申込み日2]}
         第2引数に出力先CSRファイルパスを指定した場合はCSVを出力
         """
-        # 引数でID dictを指定しない場合
         if not id_dict:
             id_dict = self.id_dict
-        reserv_dict = {}
-        
-        # Chromeドライバーの起動
-        self.driver = self.browser_session.create_driver()
-        for k, v in id_dict.items():
-            self.driver.get(config['URL']['TOP_URL'])
-            try:
-                # ログインページへ移動
-                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
-                self.driver.find_element(By.NAME,"userId").send_keys(k)
-                self.driver.find_element(By.NAME,"password").send_keys(v[2])
-                # ログイン
-                time.sleep(0.5)
-                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
-
-                # # 有効期限が近づいている画面が出た場合
-                # if "お知らせ画面" in self.driver.title:
-                #     if "利用者カードの有効期限が切れている" in self.driver.page_source:
-                #         print("ID:" + k + " 期限切れ")
-                #         continue
-                #     else:
-                #         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
-                # if "伝言表示画面" in self.driver.title:
-                #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
-                #     logging.warn("ID:" + k + " 伝言アリ")
-
-            except UnexpectedAlertPresentException:
-                print("ID:" + k + " 期限切れ")
-                logging.warning("ID:" + k + " 期限切れ")
-                continue
-
-            if "ホーム画面" in self.driver.title:
-                try:
-                    # 抽選申し込み確認画面へ
-                    self.navigation_service.go_to_lottery_cancel_list(self.driver)
-                    # Beautiful soupで申込み日と時間の取得
-                    time.sleep(0.5)
-                    soup = bs(self.driver.page_source, 'html.parser')
-                    found_day_list = [elem.text for elem in soup.find_all(string=re.compile("月.*日(.*)"))]
-                    found_time_list = [elem.text for elem in soup.find_all(string=re.compile("時.*分"))]
-                    if len(found_day_list) == 2:
-                        print("ID:" + k + " 申込み日1→ " + found_day_list[0] + " " + found_time_list[0] + found_time_list[1])
-                        print("ID:" + k + " 申込み日2→ " + found_day_list[1] + " " + found_time_list[2]+ found_time_list[3])
-                        reserv_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0] + found_time_list[1], found_day_list[1] + " " + found_time_list[2] + found_time_list[3]]
-                    elif len(found_day_list) == 1:
-                        print("ID:" + k + " 申込み日1→ " + found_day_list[0] + " " + found_time_list[0] + found_time_list[1])
-                        reserv_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0] + found_time_list[1]]
-                    else:
-                        print("ID:" + k + " 申込みなし")
-                        reserv_dict[k] = [v[0], v[1], v[2], "", ""]
-                except UnexpectedAlertPresentException:
-                    print("ID:" + k + " 申込みなし")
-                    reserv_dict[k] = [v[0], v[1], v[2], "", ""]
-                    continue
-
-            time.sleep(1)
-            # ログアウト
-            self.navigation_service.logout(self.driver)
-            time.sleep(1)
-        self.browser_session.safe_close(self.driver)
-        self.driver = None
-
-        if output_csv_path != "":
-            mi.output_csv_from_id_dict(reserv_dict, output_csv_path)
-        return reserv_dict
+        return self.lottery_service.check_lottery(id_dict, output_csv_path)
 
     def check_result(self, id_dict={}, output_csv_path=""):
         """
@@ -1050,70 +604,7 @@ class Court_Reserv(tk.Frame):
         """
         if not id_dict:
             id_dict = self.id_dict
-
-        result_dict = {}
-        # Chromeドライバーの起動
-        self.driver = self.browser_session.create_driver()
-        for k, v in id_dict.items():
-            self.driver.get(config['URL']['TOP_URL'])
-            try:
-                # ログインページへ移動
-                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
-                self.driver.find_element(By.NAME,"userId").send_keys(k)
-                self.driver.find_element(By.NAME,"password").send_keys(v[2])
-                # ログイン
-                time.sleep(0.5)
-                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
-                # 有効期限が近づいている画面が出た場合
-                # if "お知らせ画面" in self.driver.title:
-                #     if "利用者カードの有効期限が切れている" in self.driver.page_source:
-                #         print("ID:" + k + " 期限切れ")
-                #         continue
-                #     else:
-                #         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
-                # if "伝言表示画面" in self.driver.title:
-                #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
-                #     logging.warn("ID:" + k + " 伝言アリ")
-
-            except UnexpectedAlertPresentException:
-                print("ID:" + k + " 期限切れ")
-                logging.warning("ID:" + k + " 期限切れ")
-                continue
-
-            if "ホーム画面" in self.driver.title:
-                try:
-                    # 抽選結果確認画面へ
-                    self.navigation_service.go_to_lottery_result_list(self.driver)
-                    # Beautiful soupで申込み日と時間の取得
-                    time.sleep(0.5)
-                    soup = bs(self.driver.page_source, 'html.parser')
-                    found_day_list = [elem.text for elem in soup.find_all('span', string=re.compile("月.*日(.*)"))]
-                    found_time_list = [elem.text for elem in soup.find_all(string=re.compile("時.*分～.*時.*分"))]
-                    # 当選日1日パターン
-                    if len(found_day_list) == 1:
-                        print("ID:" + k + " 当選日1→ " + found_day_list[0] + " " + found_time_list[0])
-                        result_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0]]
-                    # 当選日2日パターン
-                    elif len(found_day_list) == 2:
-                        print("ID:" + k + " 当選日1→ " + found_day_list[0] + " " + found_time_list[0])
-                        print("ID:" + k + " 当選日2→ " + found_day_list[1] + " " + found_time_list[1])
-                        result_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0], found_day_list[1] + " " + found_time_list[1]]
-
-                except UnexpectedAlertPresentException:
-                    print("ID:" + k + " 申込みなし")
-                    #result_dict[k] = [v[0], v[1], v[2], "", ""]
-                    continue
-            time.sleep(1)
-            # ログアウト
-            self.navigation_service.logout(self.driver)
-            time.sleep(1)
-        self.browser_session.safe_close(self.driver)
-        self.driver = None
-
-        if output_csv_path != "":
-            mi.output_csv_from_id_dict(result_dict, output_csv_path)
-
-        return result_dict
+        return self.lottery_service.check_result(id_dict, output_csv_path)
 
     def determine_reserv(self, input_csv_path="", output_csv_path=""):
         """
