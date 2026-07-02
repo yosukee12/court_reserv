@@ -2,6 +2,8 @@
 
 東京都スポーツ施設予約システム向けの個人利用ツールです。現在の実装は Python + Selenium + Tkinter を中心に構成されており、抽選申込み、抽選結果確認、予約確定、空き枠確認を補助します。
 
+Phase 1 では、設定管理、ドキュメント整備、Browser Layer / Service Layer / Model Foundation、Selenium 4 移行までを完了しました。今後は Phase 2 として、自動予約基盤と予約戦略の設計・実装へ進みます。
+
 ## Scope
 
 - 個人利用を前提とした補助ツールです
@@ -12,6 +14,19 @@
 
 - GUI: `python court_reserv/court_reserv.py`
 - GUI module entrypoint: `python -m court_reserv.ui.app`
+
+## Current Architecture Snapshot
+
+- `court_reserv/browser/`
+  Selenium セッション、ログイン、共通画面遷移を担当
+- `court_reserv/services/`
+  抽選、予約、空き確認、ID 管理の業務フローを担当
+- `court_reserv/models/`
+  Phase 2 に向けた基本モデルを提供
+- `court_reserv/ui/`
+  Tkinter UI のエントリーポイントと表示制御を担当
+- `court_reserv/legacy/`
+  旧実装の退避先。現行フローの主経路では使用しない
 
 ## Directory Overview
 
@@ -63,12 +78,23 @@ COURT_RESERV_LOG_LEVEL=INFO
 - [x] Architecture foundation
 - [x] Legacy cleanup
 - [x] Project metadata cleanup
-- [ ] Selenium 4 migration
-- [ ] Court_Reserv split
-- [ ] Service layer extraction
+- [x] Court_Reserv split phase 1
+- [x] Browser layer extraction
+- [x] Service layer extraction
+- [x] ID management separation
+- [x] Model foundation
+- [x] Selenium 4 migration
+- [x] Phase 1 wrap-up
 - [ ] Reservation strategy engine
 - [ ] Auto reservation
 - [ ] Notification and operations
+
+## Phase 2 Focus
+
+- 予約戦略エンジンの設計
+- 半自動予約フローの整理
+- 自動予約基盤の追加
+- 通知、監視、運用補助の準備
 
 ## Development Policy
 

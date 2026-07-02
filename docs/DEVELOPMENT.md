@@ -22,6 +22,12 @@
 - 実装できなかった点や未確認事項は仮実装せず、Completion Report に残す
 - Follow-up Items には次 Issue で扱うべき事項だけを記載する
 
+## Phase Status
+
+- Phase 1 は Issue 0016 で完了とする
+- Phase 2 では、既存挙動を維持したまま予約戦略と自動予約基盤を段階的に追加する
+- Phase 2 の Issue でも、仕様変更を伴う場合は Scope と Out of Scope を明示する
+
 ## Implementation Rules
 
 - Issue 外の仕様変更は行わない
@@ -116,6 +122,12 @@
 - `court_reserv/models/` には `Account`、`Facility`、`Slot`、`ReservationPreference` などの基本 dataclass を置く
 - モデル基盤 Issue では、既存コードへの全面適用ではなく import 可能な土台作りを優先する
 - 既存辞書構造や CSV フォーマットは別 Issue がない限り維持する
+
+## Phase 2 Working Rules
+
+- Phase 2 では予約戦略エンジン、自動予約、通知基盤を別 Issue で小さく進める
+- 既存サービス層の安定動作を優先し、仕様変更と構造整理を同じ Issue で混在させない
+- CAPTCHA / reCAPTCHA の手動認証待機方針は継続する
 
 ## Metadata Policy
 

@@ -2,16 +2,20 @@
 
 ## Current State
 
-現状の実装は `court_reserv/court_reserv.py` に以下の責務が集中しています。
+Phase 1 完了時点では、初期の巨大な `Court_Reserv` クラスから責務分離の土台が整い、主要な Selenium 共通処理と業務フローは専用モジュールへ段階的に切り出されています。
 
-- Tkinter UI
-- Selenium 操作
-- ログインと画面遷移
-- 抽選申込み、結果確認、予約確定
-- 空き枠収集
-- CSV 出力
+- `court_reserv/court_reserv.py`
+  既存 GUI 互換起動口と UI 主体の調停
+- `court_reserv/browser/`
+  Selenium セッション、ログイン、共通画面遷移
+- `court_reserv/services/`
+  抽選、予約、空き確認、ID 管理の業務フロー
+- `court_reserv/models/`
+  Phase 2 に向けた基本モデル
+- `court_reserv/ui/app.py`
+  module entrypoint
 
-補助的に `court_reserv/manage_id.py` が ID CSV の読込・書出しと有効確認を担っています。検証用補助スクリプトは Issue 0005 で削除され、現在の正式な起動パスは GUI のみです。
+補助的に `court_reserv/manage_id.py` は既存互換ラッパーとして残っています。検証用補助スクリプトは削除または legacy 退避済みで、正式な起動パスは GUI のみです。
 
 主なエントリーポイント:
 
@@ -32,7 +36,23 @@ court_reserv/
 └── config/    設定読込、ローカル設定、環境変数連携
 ```
 
-この Issue では構成方針を明文化するだけに留め、既存の Selenium 実装や Tkinter UI、予約ロジックは移動しません。
+Phase 1 では構成方針の明文化に加えて、Browser / Service / Model の土台構築と Selenium 4 移行までを完了しました。Phase 2 では、この構成を前提に自動予約基盤へ進みます。
+
+## Phase 1 Outcome
+
+- Browser Layer 分離完了
+- Service Layer 分離完了
+- Model Foundation 追加完了
+- Selenium 4 移行完了
+- 旧検証スクリプトと legacy ルート整理完了
+- Issue Driven Development と Completion Report 運用定着
+
+## Phase 2 Direction
+
+- `models/` を利用した予約候補、優先度、利用者設定の表現強化
+- サービス層の既存挙動を維持したまま、予約戦略エンジンを追加
+- 半自動予約と自動予約を切り替え可能な orchestration 層の設計
+- 通知、監視、運用補助は Phase 3 前提で境界を先に整理
 
 ## Directory Responsibilities
 
