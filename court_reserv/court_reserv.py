@@ -9,13 +9,13 @@ try:
     from .manage_id import Manage_Id as mi
     from .config import get_debug_output_dir, load_config
     from .browser import BrowserSession, LoginService, NavigationService
-    from .services import LotteryService
+    from .services import LotteryService, ReservationService
 except Exception:
     # allow running the module as a script (no package context)
     from manage_id import Manage_Id as mi
     from config import get_debug_output_dir, load_config
     from browser import BrowserSession, LoginService, NavigationService
-    from services import LotteryService
+    from services import LotteryService, ReservationService
 import tkinter as tk
 from tkinter import ttk, messagebox
 from functools import partial
@@ -78,6 +78,15 @@ class Court_Reserv(tk.Frame):
             navigation_service=self.navigation_service,
             logger=logging,
             show_info=messagebox.showinfo,
+            output_id_dict=mi.output_csv_from_id_dict,
+            sleep_func=time.sleep,
+        )
+        self.reservation_service = ReservationService(
+            config=config,
+            browser_session=self.browser_session,
+            navigation_service=self.navigation_service,
+            logger=logging,
+            get_id_dict_from_csv=mi.get_id_dict_from_csv,
             output_id_dict=mi.output_csv_from_id_dict,
             sleep_func=time.sleep,
         )
@@ -614,96 +623,10 @@ class Court_Reserv(tk.Frame):
             {ID, [名前(漢字),名前(カタカナ),パスワード(生年月日),確定日1,確定日2]}
         第2引数に出力先CSRファイルパスを指定した場合はCSVを出力
         """
-        print(input_csv_path)
-        id_dict = mi.get_id_dict_from_csv(input_csv_path)
-
-        result_dict = {}
-        # Chromeドライバーの起動
-        self.driver = self.browser_session.create_driver()
-        for k, v in id_dict.items():
-            self.driver.get(config['URL']['TOP_URL'])
-            try:
-                # ログインページへ移動
-                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
-                self.driver.find_element(By.NAME,"userId").send_keys(k)
-                self.driver.find_element(By.NAME,"password").send_keys(v[2])
-                # ログイン
-                time.sleep(0.5)
-                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
-                # # 有効期限が近づいている画面が出た場合
-                # if "お知らせ画面" in self.driver.title:
-                #     if "利用者カードの有効期限が切れている" in self.driver.page_source:
-                #         print("ID:" + k + " 期限切れ")
-                #         continue
-                #     else:
-                #         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
-                # if "伝言表示画面" in self.driver.title:
-                #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
-                #     logging.warn("ID:" + k + " 伝言アリ")
-
-            except UnexpectedAlertPresentException:
-                print("ID:" + k + " 期限切れ")
-                logging.warning("ID:" + k + " 期限切れ")
-                continue
-
-            if "ホーム画面" in self.driver.title:
-                try:
-                    # 抽選結果確認画面へ
-                    self.navigation_service.go_to_lottery_result_list(self.driver)
-                    # Beautiful soupで申込み日と時間の取得
-                    time.sleep(0.5)
-                    soup = bs(self.driver.page_source, 'html.parser')
-                    found_day_list = [elem.text for elem in soup.find_all('span', string=re.compile("月.*日(.*)"))]
-                    found_time_list = [elem.text for elem in soup.find_all(string=re.compile("時.*分～.*時.*分"))]
-                    # 当選日1日パターン
-                    if len(found_day_list) == 1:
-                        self._get_wait(240).until(EC.alert_is_present(),
-                                                              'Timed out waiting for PA creation ' +
-                                                              'confirmation popup to appear.')
-                        alert = self.driver.switch_to.alert
-                        alert.accept()
-                        print("ID:" + k + " 確定日→ " + found_day_list[0] + " " + found_time_list[0])
-                        result_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0]]
-                        logging.info("ID:" + k + " 予約確定完了→ " + found_day_list[0] + " " + found_time_list[0])
-                    # 当選日2日パターン
-                    elif len(found_day_list) == 2:
-                        for i in range(2):
-                            # 2日当選日があった場合、labelが空になるまで
-                            self._get_wait(240).until(EC.alert_is_present(),
-                                                                  'Timed out waiting for PA creation ' +
-                                                                  'confirmation popup to appear.')
-                            alert = self.driver.switch_to.alert
-                            alert.accept()
-                            if i == 0:
-                                print("ID:" + k + " 確定日→ " + found_day_list[0] + " " + found_time_list[0])
-                                logging.info("ID:" + k + " 予約確定完了→ " + found_day_list[0] + " " + found_time_list[0])
-                            elif i == 1:
-                                print("ID:" + k + " 確定日→ " + found_day_list[1] + " " + found_time_list[1])
-                                result_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0],found_day_list[1] + " " + found_time_list[1]]
-                                logging.info("ID:" + k + " 予約確定完了→ " + found_day_list[1] + " " + found_time_list[1])
-
-                            ## 確定後の画面のhtmlを保存
-                            #html = self.driver.page_source
-                            #with open(config['PATH']['OUTPUT_CSV_PATH'] + '/' + k + '_' + found_list[2] + found_list[
-                            #    3] + '.html', 'w', encoding='utf-8') as f:
-                            #    f.write(html)
-
-                except UnexpectedAlertPresentException:
-                    print("ID:" + k + " 申込みなし")
-                    result_dict[k] = [v[0], v[1], v[2], "", ""]
-                    continue
-
-            time.sleep(1)
-            # ログアウト
-            self.navigation_service.logout(self.driver)
-            time.sleep(1)
-        self.browser_session.safe_close(self.driver)
-        self.driver = None
-
-        if output_csv_path != "":
-            mi.output_csv_from_id_dict(result_dict, output_csv_path)
-
-        return result_dict
+        return self.reservation_service.determine_reserv(
+            input_csv_path,
+            output_csv_path,
+        )
 
     def check_reserv(self, id_dict={}, output_csv_path=""):
         """
@@ -716,56 +639,7 @@ class Court_Reserv(tk.Frame):
         """
         if not id_dict:
             id_dict = self.id_dict
-
-        result_dict = {}
-        # Chromeドライバーの起動
-        self.driver = self.browser_session.create_driver()
-        for k, v in id_dict.items():
-            self.driver.get(config['URL']['TOP_URL'])
-            try:
-                # ログインページへ移動
-                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
-                self.driver.find_element(By.NAME,"userId").send_keys(k)
-                self.driver.find_element(By.NAME,"password").send_keys(v[2])
-                # ログイン
-                time.sleep(0.5)
-                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
-                # # 有効期限が近づいている画面が出た場合
-                # if "お知らせ画面" in self.driver.title:
-                #     if "利用者カードの有効期限が切れている" in self.driver.page_source:
-                #         print("ID:" + k + " 期限切れ")
-                #         continue
-                #     else:
-                #         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
-                # if "伝言表示画面" in self.driver.title:
-                #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
-                #     logging.warn("ID:" + k + " 伝言アリ")
-
-            except UnexpectedAlertPresentException:
-                print("ID:" + k + " 期限切れ")
-                logging.warning("ID:" + k + " 期限切れ")
-                continue
-
-            if "ホーム画面" in self.driver.title:
-                try:
-                    # 予約確認画面へ
-                    self.navigation_service.go_to_reservation_list(self.driver)
-                    # TODO: 当選確定済の当選結果 のみ出力させたい
-                    time.sleep(3)
-                except UnexpectedAlertPresentException:
-                    print("ID:" + k + " 申込みなし")
-                    result_dict[k] = [v[0], v[1], v[2], "", ""]
-                    continue
-            # ログアウト
-            self.navigation_service.logout(self.driver)
-            time.sleep(1)
-
-        self.browser_session.safe_close(self.driver)
-        self.driver = None
-        # if output_csv_path != "":
-        #     mi.output_csv_from_id_dict(result_dict, output_csv_path)
-
-        return result_dict
+        return self.reservation_service.check_reserv(id_dict, output_csv_path)
 
     def check_court(self, month):
         """

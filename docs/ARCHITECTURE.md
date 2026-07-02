@@ -59,6 +59,7 @@ court_reserv/
 - Login Service のような再利用処理は `browser/` に段階的に切り出してよいが、画面遷移や予約処理の責務までは同時に広げない
 - Navigation Service は JavaScript 呼び出しと共通画面遷移の集約先とし、抽選や予約の分岐ロジックは含めない
 - Lottery Service は抽選申込み、抽選申込み確認、抽選結果確認の業務フローを集約し、予約確定や空き確認は含めない
+- Reservation Service は予約確定、予約確認の業務フローを集約し、抽選処理や空き確認は含めない
 
 ## UI Entrypoint Policy
 
@@ -90,6 +91,12 @@ court_reserv/
 - 抽選申込み、抽選申込み状況確認、抽選当選結果確認は `services/lottery.py` に集約する
 - `Court_Reserv` では Lottery Service を呼び出すだけに留め、Tkinter UI と他業務フローは維持する
 - 予約確定処理、空き確認処理、ID 管理処理は別 Issue で扱う
+
+## Reservation Service Policy
+
+- 予約確定、予約確認は `services/reservation.py` に集約する
+- `Court_Reserv` では Reservation Service を呼び出すだけに留め、抽選処理、空き確認処理、ID 管理処理は維持する
+- 空き確認処理の分離は別 Issue で扱う
 
 ## Automation Policy
 

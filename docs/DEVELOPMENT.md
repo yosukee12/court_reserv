@@ -37,6 +37,7 @@
 - ログイン分離 Issue では、ログイン処理と CAPTCHA 手動待機だけを切り出し、抽選・予約・画面遷移ロジックは変更しない
 - Navigation 分離 Issue では、JavaScript 呼び出しと共通画面遷移だけを切り出し、抽選・予約・空き確認ロジックは変更しない
 - Lottery Service 分離 Issue では、抽選申込み系フローだけを切り出し、予約確定・空き確認・ID 管理は変更しない
+- Reservation Service 分離 Issue では、予約確定・予約確認だけを切り出し、抽選・空き確認・ID 管理は変更しない
 
 ## Local Setup
 
@@ -81,6 +82,12 @@
 - 抽選申込み、抽選申込み状況確認、抽選当選結果確認は `court_reserv/services/lottery.py` に集約する
 - `Court_Reserv` 側には UI イベントハンドラと最小限の委譲だけを残す
 - 予約確定処理や空き確認処理の切り出しは別 Issue で扱う
+
+## Reservation Service
+
+- 予約確定、予約確認は `court_reserv/services/reservation.py` に集約する
+- `Court_Reserv` 側には UI イベントハンドラと最小限の委譲だけを残す
+- 空き確認処理や ID 管理処理の切り出しは別 Issue で扱う
 
 ## Metadata Policy
 
