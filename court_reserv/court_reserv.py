@@ -8,21 +8,19 @@ import re
 try:
     from .manage_id import Manage_Id as mi
     from .config import get_debug_output_dir, load_config
+    from .browser import BrowserSession
 except Exception:
     # allow running the module as a script (no package context)
     from manage_id import Manage_Id as mi
     from config import get_debug_output_dir, load_config
+    from browser import BrowserSession
 import tkinter as tk
 from tkinter import ttk, messagebox
 from functools import partial
 
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.select import Select
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException, JavascriptException
 from bs4 import BeautifulSoup as bs
@@ -45,15 +43,6 @@ check_reserv_csv = config['PATH']['OUTPUT_CSV_PATH'] + '/check_reserv_{0}.csv'.f
 alive_id_list_csv = config['PATH']['OUTPUT_CSV_PATH'] + '/ID_list_alive_{0}.csv'.format(datetime.date.today())
 dead_id_list_csv = config['PATH']['OUTPUT_CSV_PATH'] + '/ID_list_dead_{0}.csv'.format(datetime.date.today())
 
-# Selenium Options
-options = Options()
-options.add_argument('--disable-gpu');
-options.add_argument('--disable-extensions');
-options.add_argument('--proxy-server="direct://"');
-options.add_argument('--proxy-bypass-list=*');
-options.add_argument('--start-maximized');
-
-driver_path = config['PATH']['DRIVER_PATH']
 top_url = config['URL']['TOP_URL']
 
 class Court_Reserv(tk.Frame):
@@ -68,6 +57,8 @@ class Court_Reserv(tk.Frame):
         self.pack()
         self.master.geometry("500x500")
         self.master.title("Court Reservation")
+        self.browser_session = BrowserSession(config)
+        self.driver = None
 
         self.create_widgets()
 
@@ -155,7 +146,10 @@ class Court_Reserv(tk.Frame):
     # Helper methods for driver/login/logout/navigation
     def _start_driver(self):
         if getattr(self, 'driver', None) is None:
-            self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
+            self.driver = self.browser_session.create_driver()
+
+    def _get_wait(self, timeout=10):
+        return self.browser_session.get_wait(self.driver, timeout)
 
     def _login(self, user_id, password):
         """ログイン処理。成功するとホーム画面になるまで待つ。"""
@@ -197,7 +191,7 @@ class Court_Reserv(tk.Frame):
 
             # login may produce an alert on failure; detect and accept it
             try:
-                WebDriverWait(self.driver, 2).until(EC.alert_is_present())
+                self._get_wait(2).until(EC.alert_is_present())
                 alert = self.driver.switch_to.alert
                 alert_text = alert.text
                 alert.accept()
@@ -280,7 +274,7 @@ class Court_Reserv(tk.Frame):
         time.sleep(1)
         Select(self.driver.find_element(By.ID, "bname")).select_by_value("1301270")
         self.driver.execute_script("changeBname(document.form1);")
-        wait = WebDriverWait(self.driver, 10)
+        wait = self._get_wait(10)
         wait.until(lambda d: any(
             opt.get_attribute("value") == "12700020"
             for opt in Select(d.find_element(By.ID, "iname")).options
@@ -310,20 +304,20 @@ class Court_Reserv(tk.Frame):
             ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
             # wait for vacancy table to be populated (AJAX)
             try:
-                WebDriverWait(self.driver, 8).until(
+                self._get_wait(8).until(
                     lambda d: d.find_element(By.CSS_SELECTOR, '#usedate-table tbody').get_attribute('innerHTML').strip() != ''
                 )
             except Exception:
                 # fallback: wait until loading indicator is gone
                 try:
-                    WebDriverWait(self.driver, 8).until(
+                    self._get_wait(8).until(
                         lambda d: d.find_element(By.ID, 'usedate-loading').get_attribute('style').find('display: none') != -1
                     )
                 except Exception:
                     pass
             # try current page — prefer parsing the vacancy calendar table
             try:
-                WebDriverWait(self.driver, 6).until(
+                self._get_wait(6).until(
                     lambda d: d.find_element(By.CSS_SELECTOR, '#usedate-table tbody')
                 )
             except Exception:
@@ -435,7 +429,7 @@ class Court_Reserv(tk.Frame):
                                 break
                         # wait for table update (header dates change)
                         try:
-                            WebDriverWait(self.driver, 6).until(lambda d: d.find_element(By.CSS_SELECTOR, '#usedate-table thead input[name="selectUseYMD"]').get_attribute('value') != (curr_dates[0] if curr_dates else ''))
+                            self._get_wait(6).until(lambda d: d.find_element(By.CSS_SELECTOR, '#usedate-table thead input[name="selectUseYMD"]').get_attribute('value') != (curr_dates[0] if curr_dates else ''))
                         except Exception:
                             time.sleep(0.5)
                         # save paged html
@@ -651,7 +645,7 @@ class Court_Reserv(tk.Frame):
         # 申し込み人数カウント用
         list_count = 1
         # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
+        self.driver = self.browser_session.create_driver()
         for k, v in id_dict.items():
             reserv_count = 0
             self.driver.get(config['URL']['TOP_URL'])
@@ -691,7 +685,7 @@ class Court_Reserv(tk.Frame):
                 # time.sleep(1)
                 self.driver.execute_script("changeBname(document.form1);")
 
-                wait = WebDriverWait(self.driver, 10)
+                wait = self._get_wait(10)
                 wait.until(lambda d: any(
                     opt.get_attribute("value") == "12700020"
                     for opt in Select(d.find_element(By.ID, "iname")).options
@@ -761,12 +755,12 @@ class Court_Reserv(tk.Frame):
                                         pass
 
                                     # ポップアップ処理
-                                    WebDriverWait(self.driver, 60).until(EC.alert_is_present(),
+                                    self._get_wait(60).until(EC.alert_is_present(),
                                                             'Timed out waiting for PA creation ' +
                                                             'confirmation popup to appear.')
                                     alert = self.driver.switch_to.alert
                                     alert.accept()
-                                    WebDriverWait(self.driver, 1).until(EC.alert_is_present(),
+                                    self._get_wait(1).until(EC.alert_is_present(),
                                                             'Timed out waiting for PA creation ' +
                                                             'confirmation popup to appear.')
                                     time.sleep(0.3)
@@ -780,7 +774,8 @@ class Court_Reserv(tk.Frame):
             # ログアウト
             self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
             time.sleep(0.5)
-        self.driver.close()
+        self.browser_session.safe_close(self.driver)
+        self.driver = None
 
     def full_auto_reserv(self, id_dict={}, max_attempts=2):
         """
@@ -825,14 +820,14 @@ class Court_Reserv(tk.Frame):
                                 logging.warning("ID:%s 自動申込みスクリプト実行に失敗", k)
                             # ポップアップ処理
                             try:
-                                WebDriverWait(self.driver, 60).until(EC.alert_is_present())
+                                self._get_wait(60).until(EC.alert_is_present())
                                 alert = self.driver.switch_to.alert
                                 alert.accept()
                             except TimeoutException:
                                 logging.warning("ID:%s 申込み確認ポップアップが表示されませんでした", k)
                             # 完了画面になるのを待つ（短時間）
                             try:
-                                WebDriverWait(self.driver, 10).until(lambda d: "抽選メール送信完了画面" in d.title)
+                                self._get_wait(10).until(lambda d: "抽選メール送信完了画面" in d.title)
                             except Exception:
                                 logging.info("ID:%s 抽選送信完了画面への遷移を確認できませんでした", k)
                             print("reserved: ID = " + k + ", reserv_count = " + str(reserv_count))
@@ -848,10 +843,8 @@ class Court_Reserv(tk.Frame):
             time.sleep(0.5)
             self._logout()
             time.sleep(0.5)
-        try:
-            self.driver.close()
-        except Exception:
-            pass
+        self.browser_session.safe_close(self.driver)
+        self.driver = None
 
     def auto_select_and_submit_slots(self, selected_slots, submit=True, wait_alert_seconds=10):
         """
@@ -1010,7 +1003,7 @@ class Court_Reserv(tk.Frame):
                 applied = 0
                 for i in range(success_count):
                     try:
-                        WebDriverWait(self.driver, wait_alert_seconds).until(lambda d: '申込内容確認画面' in d.title)
+                        self._get_wait(wait_alert_seconds).until(lambda d: '申込内容確認画面' in d.title)
                     except Exception:
                         # if confirmation page doesn't appear, try short sleep and continue
                         time.sleep(0.5)
@@ -1043,7 +1036,7 @@ class Court_Reserv(tk.Frame):
 
                         # handle confirmation alert
                         try:
-                            WebDriverWait(self.driver, wait_alert_seconds).until(EC.alert_is_present())
+                            self._get_wait(wait_alert_seconds).until(EC.alert_is_present())
                             alert = self.driver.switch_to.alert
                             alert_text = alert.text
                             alert.accept()
@@ -1053,7 +1046,7 @@ class Court_Reserv(tk.Frame):
 
                         # wait for completion page briefly
                         try:
-                            WebDriverWait(self.driver, 10).until(lambda d: '抽選メール送信完了画面' in d.title)
+                            self._get_wait(10).until(lambda d: '抽選メール送信完了画面' in d.title)
                         except Exception:
                             # not fatal; continue to next apply
                             pass
@@ -1079,7 +1072,7 @@ class Court_Reserv(tk.Frame):
         reserv_dict = {}
         
         # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
+        self.driver = self.browser_session.create_driver()
         for k, v in id_dict.items():
             self.driver.get(config['URL']['TOP_URL'])
             try:
@@ -1135,7 +1128,8 @@ class Court_Reserv(tk.Frame):
             # ログアウト
             self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
             time.sleep(1)
-        self.driver.close()
+        self.browser_session.safe_close(self.driver)
+        self.driver = None
 
         if output_csv_path != "":
             mi.output_csv_from_id_dict(reserv_dict, output_csv_path)
@@ -1155,7 +1149,7 @@ class Court_Reserv(tk.Frame):
 
         result_dict = {}
         # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
+        self.driver = self.browser_session.create_driver()
         for k, v in id_dict.items():
             self.driver.get(config['URL']['TOP_URL'])
             try:
@@ -1209,7 +1203,8 @@ class Court_Reserv(tk.Frame):
             # ログアウト
             self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
             time.sleep(1)
-        self.driver.close()
+        self.browser_session.safe_close(self.driver)
+        self.driver = None
 
         if output_csv_path != "":
             mi.output_csv_from_id_dict(result_dict, output_csv_path)
@@ -1229,7 +1224,7 @@ class Court_Reserv(tk.Frame):
 
         result_dict = {}
         # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
+        self.driver = self.browser_session.create_driver()
         for k, v in id_dict.items():
             self.driver.get(config['URL']['TOP_URL'])
             try:
@@ -1267,7 +1262,7 @@ class Court_Reserv(tk.Frame):
                     found_time_list = [elem.text for elem in soup.find_all(string=re.compile("時.*分～.*時.*分"))]
                     # 当選日1日パターン
                     if len(found_day_list) == 1:
-                        WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
+                        self._get_wait(240).until(EC.alert_is_present(),
                                                               'Timed out waiting for PA creation ' +
                                                               'confirmation popup to appear.')
                         alert = self.driver.switch_to.alert
@@ -1279,7 +1274,7 @@ class Court_Reserv(tk.Frame):
                     elif len(found_day_list) == 2:
                         for i in range(2):
                             # 2日当選日があった場合、labelが空になるまで
-                            WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
+                            self._get_wait(240).until(EC.alert_is_present(),
                                                                   'Timed out waiting for PA creation ' +
                                                                   'confirmation popup to appear.')
                             alert = self.driver.switch_to.alert
@@ -1307,7 +1302,8 @@ class Court_Reserv(tk.Frame):
             # ログアウト
             self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
             time.sleep(1)
-        self.driver.close()
+        self.browser_session.safe_close(self.driver)
+        self.driver = None
 
         if output_csv_path != "":
             mi.output_csv_from_id_dict(result_dict, output_csv_path)
@@ -1328,7 +1324,7 @@ class Court_Reserv(tk.Frame):
 
         result_dict = {}
         # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
+        self.driver = self.browser_session.create_driver()
         for k, v in id_dict.items():
             self.driver.get(config['URL']['TOP_URL'])
             try:
@@ -1369,7 +1365,8 @@ class Court_Reserv(tk.Frame):
             self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
             time.sleep(1)
 
-        self.driver.close()
+        self.browser_session.safe_close(self.driver)
+        self.driver = None
         # if output_csv_path != "":
         #     mi.output_csv_from_id_dict(result_dict, output_csv_path)
 
@@ -1380,7 +1377,7 @@ class Court_Reserv(tk.Frame):
         コートの空き状況をチェック
         """
         # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
+        self.driver = self.browser_session.create_driver()
         self.driver.get(top_url)
         # フレーム移動
         self.driver.switch_to.frame("pawae1002")
@@ -1391,7 +1388,8 @@ class Court_Reserv(tk.Frame):
             self.driver.find_element_by_name("monthGif" + month).click() # 月選択
         except:
             print("対象月が存在しません")
-            self.driver.quit()
+            self.browser_session.safe_quit(self.driver)
+            self.driver = None
             exit()
         # 曜日選択 土曜固定
         self.driver.find_element_by_name("weektype5").click()

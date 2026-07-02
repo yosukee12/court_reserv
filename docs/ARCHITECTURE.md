@@ -55,6 +55,7 @@ court_reserv/
 - 先に薄いインターフェースと責務境界を整え、その後で実装を移す
 - 振る舞い変更を伴う整理は、必ず個別 Issue で扱う
 - Selenium の操作順序、Tkinter の見た目、予約ロジックは明示的な Issue が出るまで維持する
+- Browser Session のような共通基盤は先に切り出してよいが、ログイン処理や予約処理の中身は同じ Issue で変更しない
 
 ## UI Entrypoint Policy
 
@@ -62,6 +63,12 @@ court_reserv/
 - 新しい UI 層の起動口として `python -m court_reserv.ui.app` を追加する
 - `Court_Reserv` クラス本体は当面 `court_reserv/court_reserv.py` に残し、段階的分割を後続 Issue で進める
 - 起動口整理の段階では Selenium、Tkinter、予約ロジックの振る舞いを変えない
+
+## Browser Session Policy
+
+- WebDriver の生成、ChromeOptions の設定、`WebDriverWait` の生成、終了処理は `browser/session.py` に集約する
+- `Court_Reserv` では Browser Session を呼び出すだけに留め、ログインや予約の本体ロジックはそのまま維持する
+- `find_element_by_*` の置換や Selenium 4 対応は別 Issue で扱う
 
 ## Automation Policy
 

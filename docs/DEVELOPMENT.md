@@ -33,6 +33,7 @@
 - CAPTCHA / reCAPTCHA の回避や自動認証は実装しない
 - reCAPTCHA が表示された場合は手動認証完了まで待機し、その後に処理を継続する前提で実装する
 - 既存の正式起動パスを置き換える場合は、互換エントリーポイントを維持するか、専用 Issue で明示的に廃止する
+- 基盤切り出し Issue では、WebDriver 生成や待機処理のような共通部だけを分離し、ログイン・予約・画面遷移の中身は変更しない
 
 ## Local Setup
 
@@ -53,6 +54,12 @@
 - GUI の正式起動パスは `python court_reserv/court_reserv.py`
 - 新しい module entrypoint を追加する場合でも、互換起動パスは段階的分割が完了するまで維持する
 - entrypoint 整理だけを行う Issue では、`Court_Reserv` の中身を大規模に分割しない
+
+## Browser Session
+
+- Selenium の `WebDriver` 生成と終了処理は `court_reserv/browser/session.py` に集約する
+- `WebDriverWait` の生成は共通ヘルパーを経由し、タイムアウト値だけを各処理側から渡す
+- Browser Session 分離 Issue では、操作順序や DOM 選択式は変更しない
 
 ## Metadata Policy
 
