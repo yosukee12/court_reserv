@@ -8,12 +8,12 @@ import re
 try:
     from .manage_id import Manage_Id as mi
     from .config import get_debug_output_dir, load_config
-    from .browser import BrowserSession, LoginService
+    from .browser import BrowserSession, LoginService, NavigationService
 except Exception:
     # allow running the module as a script (no package context)
     from manage_id import Manage_Id as mi
     from config import get_debug_output_dir, load_config
-    from browser import BrowserSession, LoginService
+    from browser import BrowserSession, LoginService, NavigationService
 import tkinter as tk
 from tkinter import ttk, messagebox
 from functools import partial
@@ -63,6 +63,10 @@ class Court_Reserv(tk.Frame):
             logger=logging,
             show_info=messagebox.showinfo,
             ask_yes_no=messagebox.askyesno,
+            sleep_func=time.sleep,
+        )
+        self.navigation_service = NavigationService(
+            wait_factory=self.browser_session.get_wait,
             sleep_func=time.sleep,
         )
         self.driver = None
@@ -164,7 +168,7 @@ class Court_Reserv(tk.Frame):
 
     def _logout(self):
         try:
-            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
+            self.navigation_service.logout(self.driver)
         except Exception:
             pass
 
@@ -178,18 +182,8 @@ class Court_Reserv(tk.Frame):
 
     def _navigate_to_lottery_entry(self):
         # 抽選申し込み画面まで移動し、種目と公園を選択する共通処理
-        self.driver.execute_script("javascript:doAction(document.form1, gLotWOpeLotSearchAction);")
-        # 種目選択（テニス（人工芝））
-        self.driver.execute_script("javascript:doLotEntry('130');")
-        time.sleep(1)
-        Select(self.driver.find_element(By.ID, "bname")).select_by_value("1301270")
-        self.driver.execute_script("changeBname(document.form1);")
-        wait = self._get_wait(10)
-        wait.until(lambda d: any(
-            opt.get_attribute("value") == "12700020"
-            for opt in Select(d.find_element(By.ID, "iname")).options
-        ))
-        Select(self.driver.find_element(By.ID, "iname")).select_by_value("12700020")
+        self.navigation_service.go_to_lottery_entry(self.driver)
+        self.navigation_service.select_lottery_tennis_park(self.driver)
 
     def collect_all_available_slots(self, weeks_limit=8, only_weekday=None):
         """
@@ -897,7 +891,7 @@ class Court_Reserv(tk.Frame):
             try:
                 # open the confirmation/apply flow
                 try:
-                    self.driver.execute_script("javascript:doApplay(document.form1, gLotWInstTempLotApplyAction);")
+                    self.navigation_service.go_to_temp_apply(self.driver)
                 except Exception:
                     try:
                         btn = self.driver.find_element(By.ID, 'btn-go')
@@ -1013,7 +1007,7 @@ class Court_Reserv(tk.Frame):
             if "ホーム画面" in self.driver.title:
                 try:
                     # 抽選申し込み確認画面へ
-                    self.driver.execute_script("javascript:doAction(document.form1, gLotWTransLotCancelListAction);")
+                    self.navigation_service.go_to_lottery_cancel_list(self.driver)
                     # Beautiful soupで申込み日と時間の取得
                     time.sleep(0.5)
                     soup = bs(self.driver.page_source, 'html.parser')
@@ -1036,7 +1030,7 @@ class Court_Reserv(tk.Frame):
 
             time.sleep(1)
             # ログアウト
-            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
+            self.navigation_service.logout(self.driver)
             time.sleep(1)
         self.browser_session.safe_close(self.driver)
         self.driver = None
@@ -1089,7 +1083,7 @@ class Court_Reserv(tk.Frame):
             if "ホーム画面" in self.driver.title:
                 try:
                     # 抽選結果確認画面へ
-                    self.driver.execute_script("javascript:doAction(document.form1, gLotWTransLotElectListAction);")
+                    self.navigation_service.go_to_lottery_result_list(self.driver)
                     # Beautiful soupで申込み日と時間の取得
                     time.sleep(0.5)
                     soup = bs(self.driver.page_source, 'html.parser')
@@ -1111,7 +1105,7 @@ class Court_Reserv(tk.Frame):
                     continue
             time.sleep(1)
             # ログアウト
-            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
+            self.navigation_service.logout(self.driver)
             time.sleep(1)
         self.browser_session.safe_close(self.driver)
         self.driver = None
@@ -1164,7 +1158,7 @@ class Court_Reserv(tk.Frame):
             if "ホーム画面" in self.driver.title:
                 try:
                     # 抽選結果確認画面へ
-                    self.driver.execute_script("javascript:doAction(document.form1, gLotWTransLotElectListAction);")
+                    self.navigation_service.go_to_lottery_result_list(self.driver)
                     # Beautiful soupで申込み日と時間の取得
                     time.sleep(0.5)
                     soup = bs(self.driver.page_source, 'html.parser')
@@ -1210,7 +1204,7 @@ class Court_Reserv(tk.Frame):
 
             time.sleep(1)
             # ログアウト
-            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
+            self.navigation_service.logout(self.driver)
             time.sleep(1)
         self.browser_session.safe_close(self.driver)
         self.driver = None
@@ -1264,7 +1258,7 @@ class Court_Reserv(tk.Frame):
             if "ホーム画面" in self.driver.title:
                 try:
                     # 予約確認画面へ
-                    self.driver.execute_script("javascript:doAction(document.form1, gRsvWGetCancelRsvDataAction);")
+                    self.navigation_service.go_to_reservation_list(self.driver)
                     # TODO: 当選確定済の当選結果 のみ出力させたい
                     time.sleep(3)
                 except UnexpectedAlertPresentException:
@@ -1272,7 +1266,7 @@ class Court_Reserv(tk.Frame):
                     result_dict[k] = [v[0], v[1], v[2], "", ""]
                     continue
             # ログアウト
-            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
+            self.navigation_service.logout(self.driver)
             time.sleep(1)
 
         self.browser_session.safe_close(self.driver)
@@ -1292,8 +1286,7 @@ class Court_Reserv(tk.Frame):
         # フレーム移動
         self.driver.switch_to.frame("pawae1002")
         # 空き状況ページへ移動
-        self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formWTransInstSrchVacantAction : document.formWTransInstSrchVacantAction ), gRsvWTransInstSrchVacantAction);")
-        self.driver.execute_script("javascript:doComplexSearchAction((_dom == 3) ? document.layers['disp'].document.form1 : document.form1, gRsvWTransInstSrchMultipleAction);")
+        self.navigation_service.go_to_vacant_search(self.driver)
         try:
             self.driver.find_element_by_name("monthGif" + month).click() # 月選択
         except:
@@ -1303,11 +1296,9 @@ class Court_Reserv(tk.Frame):
             exit()
         # 曜日選択 土曜固定
         self.driver.find_element_by_name("weektype5").click()
-        self.driver.execute_script("javaScript: sendSelectWeekNum2((_dom == 3) ? document.layers['disp'].document.form1: document.form1, gRsvWTransInstSrchPpsAction);")
-        self.driver.execute_script("javascript:doTransInstSrchMultipleAction((_dom == 3) ? document.layers['disp'].document.form1 : document.form1, gRsvWTransInstSrchMultipleAction, '1000', '1030');")
+        self.navigation_service.select_weekly_vacant_conditions(self.driver)
         # 場所選択 府中の森固定
         self.driver.find_element_by_name("gifName23").click()
-        self.driver.execute_script("javascript:sendSelectWeekNum((_dom == 3) ? document.layers['disp'].document.form1 : document.form1, gRsvWGetInstSrchInfAction);")
         print(self.driver.page_source)
         # TODO ページの保存
         

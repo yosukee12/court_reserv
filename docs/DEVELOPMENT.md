@@ -35,6 +35,7 @@
 - 既存の正式起動パスを置き換える場合は、互換エントリーポイントを維持するか、専用 Issue で明示的に廃止する
 - 基盤切り出し Issue では、WebDriver 生成や待機処理のような共通部だけを分離し、ログイン・予約・画面遷移の中身は変更しない
 - ログイン分離 Issue では、ログイン処理と CAPTCHA 手動待機だけを切り出し、抽選・予約・画面遷移ロジックは変更しない
+- Navigation 分離 Issue では、JavaScript 呼び出しと共通画面遷移だけを切り出し、抽選・予約・空き確認ロジックは変更しない
 
 ## Local Setup
 
@@ -67,6 +68,12 @@
 - Selenium のログイン処理と CAPTCHA / reCAPTCHA 手動待機は `court_reserv/browser/login.py` に集約する
 - `Court_Reserv` 側には最小限の委譲メソッドだけを残し、既存の予約系フローからの呼び出し形は大きく変えない
 - `find_element_by_*` の置換やログイン後ナビゲーションの整理は別 Issue で扱う
+
+## Navigation Service
+
+- JavaScript 実行と共通画面遷移は `court_reserv/browser/navigation.py` に集約する
+- `Court_Reserv` 側には最小限の委譲だけを残し、業務ロジックの順序や条件分岐は維持する
+- 画面要素の詳細なラップやページ単位の再設計は別 Issue で扱う
 
 ## Metadata Policy
 
