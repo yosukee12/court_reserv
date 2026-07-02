@@ -40,6 +40,7 @@
 - Reservation Service 分離 Issue では、予約確定・予約確認だけを切り出し、抽選・空き確認・ID 管理は変更しない
 - Availability Service 分離 Issue では、空き確認・空き枠収集だけを切り出し、抽選・予約確定・ID 管理は変更しない
 - IdManager Service 整理 Issue では、ID管理・CSV 入出力・ID有効確認だけを整理し、抽選・予約確定・空き確認は変更しない
+- Model Foundation Issue では、基本 dataclass の追加だけを行い、既存サービスへの大規模適用は行わない
 
 ## Local Setup
 
@@ -102,6 +103,12 @@
 - ID管理、CSV 入出力、ID有効確認は `court_reserv/services/id_manager.py` に整理する
 - `manage_id.py` は既存互換のため残し、当面はサービスへの委譲ラッパーとして扱う
 - CSV フォーマット変更は別 Issue がない限り行わない
+
+## Models
+
+- `court_reserv/models/` には `Account`、`Facility`、`Slot`、`ReservationPreference` などの基本 dataclass を置く
+- モデル基盤 Issue では、既存コードへの全面適用ではなく import 可能な土台作りを優先する
+- 既存辞書構造や CSV フォーマットは別 Issue がない限り維持する
 
 ## Metadata Policy
 

@@ -62,6 +62,7 @@ court_reserv/
 - Reservation Service は予約確定、予約確認の業務フローを集約し、抽選処理や空き確認は含めない
 - Availability Service は空き確認、空き枠収集の業務フローを集約し、抽選処理や予約確定は含めない
 - IdManager Service は ID CSV 読み込み、CSV 書き出し、ID 有効確認を集約し、既存 `Manage_Id` 互換を維持する
+- Model 層は `Account`、`Facility`、`Slot`、`ReservationPreference` などの基本概念を保持し、既存サービスへは段階的に適用する
 
 ## UI Entrypoint Policy
 
@@ -111,6 +112,12 @@ court_reserv/
 - ID CSV 読み込み、CSV 書き出し、ID 有効確認は `services/id_manager.py` に整理する
 - `manage_id.py` は既存互換ラッパーとして残し、必要に応じて `IdManagerService` へ委譲する
 - CSV フォーマットは変更しない
+
+## Model Policy
+
+- `models/` には `Account`、`Facility`、`Slot`、`ReservationPreference` などの軽量 dataclass を追加する
+- モデル追加 Issue では既存サービスへの大規模適用は行わず、今後の自動予約や戦略エンジンの土台に留める
+- 既存 CSV フォーマットや既存画面値の扱いは変更しない
 
 ## Automation Policy
 
