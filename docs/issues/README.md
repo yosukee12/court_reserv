@@ -11,6 +11,16 @@
 - Out of Scope の内容は実装しない
 - 既存動作は Issue に明記がない限り変更しない
 - 不明点は仮実装せず、Completion Report に残す
+- Issue 外の実装は禁止し、必要なら提案に留める
+- 小さな PR / 小さな差分を優先する
+
+## Automation Policy
+
+- CAPTCHA / reCAPTCHA の回避、突破、自動認証は実装しない
+- 外部 CAPTCHA サービスは利用しない
+- reCAPTCHA が表示された場合は、ユーザーが手動で認証するまで待機する
+- 手動認証完了後は、そのまま処理を継続できる設計を維持する
+- 今後の自動化機能も、この方針を前提に設計する
 
 ## Directory Policy
 

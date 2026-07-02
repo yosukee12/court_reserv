@@ -7,12 +7,11 @@ from pathlib import Path
 import datetime
 
 from court_reserv.court_reserv import Court_Reserv
-from court_reserv.config import get_default_credentials
+from court_reserv.config import get_debug_output_dir, get_default_credentials
 
 
 def save_debug(app, label='error'):
-    # Force debug output into workspace repo debug folder
-    out_dir = Path('/Users/yosuke/develop/court_reserv/debug_pages')
+    out_dir = get_debug_output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # repository-level debug dir (alias, same as out_dir)
@@ -84,14 +83,6 @@ def main():
     root = tk.Tk()
     root.withdraw()
     app = Court_Reserv(master=root)
-
-    # Force application-configured output path into workspace so all components
-    # that use app.config['PATH']['OUTPUT_CSV_PATH'] will write into the repo
-    try:
-        app.config['PATH']['OUTPUT_CSV_PATH'] = '/Users/yosuke/develop/court_reserv'
-        print('Overwrote app.config OUTPUT_CSV_PATH to workspace path')
-    except Exception:
-        print('Failed to overwrite app.config OUTPUT_CSV_PATH; proceeding')
 
     default_uid, default_pwd = get_default_credentials()
 

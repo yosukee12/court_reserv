@@ -89,3 +89,15 @@ def get_default_credentials():
         password = config.get("AUTH", "PASSWORD", fallback="").strip()
 
     return user_id, password
+
+
+def get_output_base_path():
+    config = load_config()
+    output_path = config.get("PATH", "OUTPUT_CSV_PATH", fallback="").strip()
+    if output_path:
+        return Path(output_path)
+    return REPO_ROOT / "output"
+
+
+def get_debug_output_dir():
+    return get_output_base_path() / "debug_pages"
