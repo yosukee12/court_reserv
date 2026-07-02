@@ -52,6 +52,7 @@ Phase 1 では構成方針の明文化に加えて、Browser / Service / Model �
 - `models/` を利用した抽選申込み候補、優先度、利用者設定の表現強化
 - サービス層の既存挙動を維持したまま、抽選申込み自動化を追加
 - まずは dry-run と候補提示を整え、その後に抽選申込みワークフローへ進む
+- 認証情報は Preference に持たせず、ID CSV / `config.local.ini` / `.env` の順に既存設定から解決する
 - 空き施設予約は低優先度とし、Phase 3 以降で扱う
 - 通知、監視、運用補助は Phase 3 前提で境界を先に整理
 
@@ -75,13 +76,17 @@ Preference Config
 3. `Slot` モデルへ変換する
 4. 候補を順位付けする
 5. dry-run で候補表示と保存を行う
-6. 次 Issue で既存 `LoginService`、`NavigationService`、`LotteryService` を接続する
-7. CAPTCHA / reCAPTCHA が表示された場合は手動認証待機へ入る
-8. 認証完了後に既存フローを継続する
+6. `Lottery Entry Workflow` で既存 `LoginService`、`NavigationService`、`LotteryService` を接続する
+7. ランキング結果から最大 2 件、同一日時を除外して候補を選ぶ
+8. 抽選申込み画面上で候補だけを自動選択する
+9. CAPTCHA / reCAPTCHA が表示された場合は手動認証待機へ入る
+10. 認証完了後に既存フローを継続する
 
 Phase 2 では、完璧な抽象化や新しい大型レイヤ追加よりも、既存サービスの組み合わせで早く動かすことを優先する。
 
 Issue 0021 では、この最小構成のうち `Preference Config`、`Lottery Candidate Collection`、`Lottery Candidate Ranking`、`Dry-run Runner` を先に実装し、実際の抽選申込み送信にはまだ進まない。
+
+Issue 0022 では、上記 dry-run 結果を使って抽選申込み画面で候補を自動選択する軽量 workflow を追加する。最終送信は行わず、既存 `LotteryService.auto_select_and_submit_slots(..., submit=False)` を利用して pre-submit までに留める。
 
 ## Lottery Guide
 
@@ -140,6 +145,7 @@ Issue 0021 では、この最小構成のうち `Preference Config`、`Lottery C
 ## Browser Session Policy
 
 - WebDriver の生成、ChromeOptions の設定、`WebDriverWait` の生成、終了処理は `browser/session.py` に集約する
+- ChromeDriver の固定パス管理は行わず、Selenium Manager にドライバー解決を委譲する
 - `Court_Reserv` では Browser Session を呼び出すだけに留め、ログインや予約の本体ロジックはそのまま維持する
 - `find_element_by_*` の置換や Selenium 4 対応は専用 Issue で段階的に行い、業務フローは変えない
 

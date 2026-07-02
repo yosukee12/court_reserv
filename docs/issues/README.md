@@ -4,7 +4,8 @@
 
 このプロジェクトでは、大規模リファクタリングや仕様変更を無秩序に進めず、Issue 単位で安全に変更を積み上げます。
 
-Phase 1 は `docs/issues/phase1/0016-phase1-wrap-up.md` で完了とし、以後は Phase 2 の自動予約基盤整備へ進みます。
+Phase 1 は `docs/issues/phase1/0016-phase1-wrap-up.md` で完了とし、以後は Phase 2 の抽選申込み自動化整備へ進みます。
+Phase 2 の主対象は空き施設予約ではなく抽選申込み自動化です。
 
 ## Basic Rules
 
@@ -29,15 +30,17 @@ Phase 1 は `docs/issues/phase1/0016-phase1-wrap-up.md` で完了とし、以後
 - `phase1/`
   基盤整備、初期リファクタリング、準備作業。Issue 0016 で完了
 - `phase2/`
-  予約戦略、自動予約基盤、通知連携前提の機能拡張
+  抽選申込み自動化、順位付け、workflow 整備
 - `tech-debt/`
   技術的負債の整理や横断的改善
 
 ## Phase 2 Policy
 
-- Phase 2 は予約戦略・自動予約基盤の整備を中心に進める
+- Phase 2 は予約戦略・抽選申込み自動化基盤の整備を中心に進める
+- Phase 2 は抽選申込み自動化を主対象とし、空き施設予約は低優先度で扱う
 - 仕様追加は必ず個別 Issue へ分割し、設計判断と実装範囲を明示する
 - 小さな PR / 小さな差分を優先し、複数テーマを同時に混ぜない
+- Preference に認証情報を持たせず、既存の ID CSV / `config.local.ini` / `.env` を利用する
 
 ## Phase 3 Policy
 

@@ -18,6 +18,7 @@
 - Lottery Candidate Ranking
 - Lottery Entry Workflow
 - Lottery Automation Dry-run
+- Lottery Entry Screen Selection
 - Retry / Recovery
 - 既存 service 活用を優先した軽量実装
 - dry-run をデフォルトにした段階導入

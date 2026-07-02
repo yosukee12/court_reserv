@@ -28,6 +28,7 @@
 - Phase 2 では、既存挙動を維持したまま抽選申込み自動化を段階的に追加する
 - 空き施設予約は低優先度とし、Phase 2 では主対象にしない
 - Phase 2 の Issue でも、仕様変更を伴う場合は Scope と Out of Scope を明示する
+- 抽選申込み自動化では認証情報を Preference に含めず、ID CSV / `config.local.ini` / `.env` の順に既存設定から解決する
 
 ## Implementation Rules
 
@@ -53,8 +54,10 @@
 
 - `court_reserv/config.ini` は Git 管理する安全なベース設定として扱う
 - 環境依存の設定や秘密情報は `config.local.ini` または `.env` で上書きする
+- WebDriver は Selenium Manager に委譲するため、ChromeDriver の固定パスは設定しない
 - 個人情報や認証情報を含むファイルは Git に追加しない
 - 出力物は `logs/`, `output/`, `output/debug_pages/` を利用する
+- Preference ファイルには ID / password を入れず、認証情報は既存の ID CSV またはローカル設定から解決する
 
 ## Legacy And Scripts
 
@@ -130,6 +133,7 @@
 - 既存サービス層の安定動作を優先し、仕様変更と構造整理を同じ Issue で混在させない
 - CAPTCHA / reCAPTCHA の手動認証待機方針は継続する
 - 空き施設予約は低優先度として扱う
+- 抽選申込み画面の workflow では、まず dry-run の順位結果を使って候補を自動選択するところまでを対象とし、最終送信は別 Issue で扱う
 
 ## Lottery Guide Rules
 
@@ -148,6 +152,7 @@
 - 通知機能とスケジューラ機能は Phase 2 の対象外とする
 - CAPTCHA / reCAPTCHA は引き続き手動認証待機で扱う
 - Issue 0021 では実際の抽選申込み送信を行わず、候補抽出と順位付けだけを dry-run で確認する
+- Issue 0022 では `LoginService`、`NavigationService`、`LotteryService` を再利用し、抽選申込み画面で候補を自動選択するところまでを対象とする
 
 ## Metadata Policy
 

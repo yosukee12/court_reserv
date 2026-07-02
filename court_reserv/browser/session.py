@@ -3,7 +3,6 @@
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 
 
@@ -12,7 +11,6 @@ class BrowserSession:
 
     def __init__(self, config):
         self.config = config
-        self.driver_path = config["PATH"]["DRIVER_PATH"]
 
     def build_options(self):
         options = Options()
@@ -24,10 +22,7 @@ class BrowserSession:
         return options
 
     def create_driver(self):
-        return webdriver.Chrome(
-            service=Service(self.driver_path),
-            options=self.build_options(),
-        )
+        return webdriver.Chrome(options=self.build_options())
 
     def get_wait(self, driver, timeout=10):
         return WebDriverWait(driver, timeout)

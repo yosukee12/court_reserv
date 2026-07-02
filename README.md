@@ -2,7 +2,7 @@
 
 東京都スポーツ施設予約システム向けの個人利用ツールです。現在の実装は Python + Selenium + Tkinter を中心に構成されており、抽選申込み、抽選結果確認、予約確定、空き枠確認を補助します。
 
-Phase 1 では、設定管理、ドキュメント整備、Browser Layer / Service Layer / Model Foundation、Selenium 4 移行までを完了しました。Phase 2 では、空き施設予約よりも先に、抽選申込み自動化の dry-run と支援機能を優先して進めます。
+Phase 1 では、設定管理、ドキュメント整備、Browser Layer / Service Layer / Model Foundation、Selenium 4 移行までを完了しました。Phase 2 では、空き施設予約よりも先に、抽選申込み自動化の dry-run と抽選申込み画面での候補選択支援を優先して進めます。
 
 ## Scope
 
@@ -52,25 +52,27 @@ scripts/      将来の補助スクリプト置き場
 2. `requirements.txt` を元に依存関係をインストールします
 3. リポジトリ同梱の `court_reserv/config.ini` を安全なベース設定として確認します
 4. 必要に応じて `config.local.ini` または `.env` を作成し、ローカル固有の設定や認証情報を上書きします
-5. ChromeDriver のパスなど、環境依存の設定をローカルで補完します
+5. WebDriver は Selenium Manager に委譲するため、ChromeDriver の固定パス設定は不要です
 
 ## Launch
 
 - 既存 GUI 起動: `python court_reserv/court_reserv.py`
 - 新しい module 起動: `python -m court_reserv.ui.app`
 - Phase 2 dry-run: `python scripts/lottery_automation_dry_run.py --preferences config/preferences.example.yaml --dry-run`
+- Lottery entry workflow: `python scripts/lottery_entry_workflow.py --preferences config/preferences.example.yaml`
 
 `.env` では次のような値を設定できます。
 
 ```bash
 COURT_RESERV_USER_ID=
 COURT_RESERV_PASSWORD=
-COURT_RESERV_CHROME_DRIVER_PATH=
 COURT_RESERV_LOG_PATH=
 COURT_RESERV_OUTPUT_CSV_PATH=
 COURT_RESERV_TOP_URL=
 COURT_RESERV_LOG_LEVEL=INFO
 ```
+
+Selenium 4.6 以降では Selenium Manager が ChromeDriver の検出と取得を担当します。通常は `webdriver.Chrome(options=...)` のみで起動します。
 
 ## Current Status
 
@@ -86,7 +88,8 @@ COURT_RESERV_LOG_LEVEL=INFO
 - [x] Model foundation
 - [x] Selenium 4 migration
 - [x] Phase 1 wrap-up
-- [ ] Lottery automation
+- [x] Lottery automation dry-run and entry selection workflow
+- [ ] Lottery submission automation
 - [ ] Vacant facility reservation improvements
 - [ ] Notification and operations
 
@@ -94,9 +97,19 @@ COURT_RESERV_LOG_LEVEL=INFO
 
 - 抽選申込み自動化の dry-run と候補抽出
 - 希望条件と順位付けの整備
-- 抽選申込みワークフローの自動化準備
+- 抽選申込みワークフローの候補自動選択
 - 空き施設予約は低優先度
 - 通知とスケジューラは Phase 2 の対象外
+
+## Authentication Priority
+
+抽選申込み自動化系の CLI では、認証情報を次の優先順位で解決します。
+
+1. `IdManagerService` から読む ID CSV
+2. `config.local.ini`
+3. `.env`
+
+希望条件ファイルには ID / password を含めません。
 
 ## Lottery Guide
 

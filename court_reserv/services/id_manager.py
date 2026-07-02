@@ -7,7 +7,6 @@ import time
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import UnexpectedAlertPresentException
 
@@ -90,10 +89,7 @@ class IdManagerService:
         dead_id_dict = {}
         dead_soon_id_dict = {}
         alive_id_dict = {}
-        driver = webdriver.Chrome(
-            service=Service(self.config["PATH"]["DRIVER_PATH"]),
-            options=self._build_options(),
-        )
+        driver = webdriver.Chrome(options=self._build_options())
         try:
             for key, values in id_dict.items():
                 driver.get(self.config["URL"]["TOP_URL"])
