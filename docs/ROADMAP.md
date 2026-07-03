@@ -23,6 +23,7 @@
 - Lottery Result Workflow
 - Reservation Confirmation Assist
 - Lottery Entry Slot Collection
+- Lottery Submission Recovery
 - Retry / Recovery
 - 既存 service 活用を優先した軽量実装
 - dry-run をデフォルトにした段階導入

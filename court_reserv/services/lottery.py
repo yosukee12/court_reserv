@@ -1,14 +1,20 @@
 # -*- coding: utf-8 -*-
 """Lottery business logic extracted from the legacy UI class."""
 
+import json
 import re
 import time
+from datetime import datetime
 
 from bs4 import BeautifulSoup as bs
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.select import Select
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException
+from selenium.common.exceptions import (
+    NoAlertPresentException,
+    TimeoutException,
+    UnexpectedAlertPresentException,
+)
 
 
 class LotteryService:
@@ -447,6 +453,11 @@ class LotteryService:
             "requested_count": int(success_count),
             "submitted_count": 0,
             "completed": False,
+            "recovery_triggered": False,
+            "recovery_completed": False,
+            "recovery_attempts": 0,
+            "states": [],
+            "debug_files": [],
         }
         if not driver or success_count <= 0:
             return summary
@@ -473,63 +484,216 @@ class LotteryService:
                     applied += 1
                     sel_val = f"{applied}-1"
                     try:
-                        Select(driver.find_element(By.ID, "apply")).select_by_value(
-                            sel_val
-                        )
+                        self._restore_apply_selection(driver, sel_val)
                     except Exception:
                         self.logger.warning("apply select not found to set %s", sel_val)
                     self.sleep_func(0.2)
-                    try:
-                        try:
-                            if self.login_service.detect_captcha(driver):
-                                ok = self.login_service.wait_for_manual_captcha(driver)
-                                if not ok:
-                                    self.logger.warning(
-                                        "User cancelled captcha handling; aborting apply loop"
-                                    )
-                                    break
-                        except Exception:
-                            pass
-                        self.navigation_service.execute_script(
-                            driver,
-                            "javascript:sendLotApply(document.form1, gLotWInstLotApplyAction, event);",
-                        )
-                    except Exception:
-                        try:
-                            driver.find_element(By.ID, "btn-apply").click()
-                        except Exception:
-                            pass
-
-                    try:
-                        self._get_wait(driver, wait_alert_seconds).until(
-                            EC.alert_is_present()
-                        )
-                        alert = driver.switch_to.alert
-                        alert_text = alert.text
-                        alert.accept()
-                        self.logger.info(
-                            "Accepted confirmation alert: %s", alert_text
-                        )
-                    except Exception:
-                        self.logger.info(
-                            "No confirmation alert appeared for apply %s", sel_val
-                        )
-
-                    try:
-                        self._get_wait(driver, 10).until(
-                            lambda d: "抽選メール送信完了画面" in d.title
-                        )
-                    except Exception:
-                        pass
+                    submission_result = self._submit_with_recovery(
+                        driver,
+                        sel_val=sel_val,
+                        wait_alert_seconds=wait_alert_seconds,
+                    )
+                    summary["states"].extend(submission_result.get("states", []))
+                    summary["debug_files"].extend(
+                        submission_result.get("debug_files", [])
+                    )
+                    summary["recovery_attempts"] += submission_result.get(
+                        "recovery_attempts", 0
+                    )
+                    if submission_result.get("recovery_triggered"):
+                        summary["recovery_triggered"] = True
+                    if submission_result.get("recovery_completed"):
+                        summary["recovery_completed"] = True
+                    if not submission_result.get("completed"):
+                        break
                     summary["submitted_count"] = applied
                 except Exception:
                     self.logger.exception("Error during confirmation/apply loop")
+                    debug_files = self._save_submission_debug(
+                        driver,
+                        prefix=f"lottery_submission_failure_{applied}",
+                    )
+                    summary["debug_files"].extend(debug_files)
                     break
         except Exception:
             self.logger.exception("Error during submit")
 
         summary["completed"] = summary["submitted_count"] == summary["requested_count"]
         return summary
+
+    def _submit_with_recovery(self, driver, sel_val, wait_alert_seconds=10):
+        result = {
+            "completed": False,
+            "recovery_triggered": False,
+            "recovery_completed": False,
+            "recovery_attempts": 0,
+            "states": [],
+            "debug_files": [],
+        }
+        max_recovery_attempts = 1
+
+        self._trigger_final_apply(driver)
+        deadline = time.time() + max(wait_alert_seconds, 1) * 3
+        while time.time() < deadline:
+            state = self._classify_submission_state(driver)
+            result["states"].append(state)
+            state_name = state.get("state")
+
+            if state_name == "completed":
+                result["completed"] = True
+                return result
+
+            if state_name == "alert":
+                try:
+                    alert = driver.switch_to.alert
+                    alert_text = alert.text
+                    alert.accept()
+                    self.logger.info("Accepted confirmation alert: %s", alert_text)
+                except Exception:
+                    pass
+                self.sleep_func(0.3)
+                continue
+
+            if state_name == "recaptcha":
+                if result["recovery_attempts"] >= max_recovery_attempts:
+                    self.logger.warning(
+                        "reCAPTCHA recovery already retried once for %s", sel_val
+                    )
+                    result["debug_files"].extend(
+                        self._save_submission_debug(
+                            driver,
+                            prefix=f"lottery_submission_recaptcha_exhausted_{sel_val.replace('-', '_')}",
+                        )
+                    )
+                    return result
+                result["recovery_triggered"] = True
+                ok = self.login_service.wait_for_manual_captcha(driver)
+                if not ok:
+                    self.logger.warning(
+                        "User cancelled captcha handling during recovery for %s", sel_val
+                    )
+                    result["debug_files"].extend(
+                        self._save_submission_debug(
+                            driver,
+                            prefix=f"lottery_submission_recaptcha_cancelled_{sel_val.replace('-', '_')}",
+                        )
+                    )
+                    return result
+                result["recovery_attempts"] += 1
+                try:
+                    self._get_wait(driver, wait_alert_seconds).until(
+                        lambda d: "申込内容確認画面" in d.title
+                    )
+                except Exception:
+                    pass
+                self._restore_apply_selection(driver, sel_val)
+                self.sleep_func(0.2)
+                self._trigger_final_apply(driver)
+                result["recovery_completed"] = True
+                continue
+
+            if state_name == "confirm":
+                self.sleep_func(0.3)
+                continue
+
+            if state_name == "unknown":
+                self.sleep_func(0.3)
+                continue
+
+            if state_name == "error":
+                result["debug_files"].extend(
+                    self._save_submission_debug(
+                        driver,
+                        prefix=f"lottery_submission_error_{sel_val.replace('-', '_')}",
+                    )
+                )
+                return result
+
+        result["debug_files"].extend(
+            self._save_submission_debug(
+                driver,
+                prefix=f"lottery_submission_timeout_{sel_val.replace('-', '_')}",
+            )
+        )
+        return result
+
+    def _restore_apply_selection(self, driver, sel_val):
+        Select(driver.find_element(By.ID, "apply")).select_by_value(sel_val)
+        selected = Select(driver.find_element(By.ID, "apply")).first_selected_option
+        self.logger.info(
+            "Restored apply selection: value=%s text=%s title=%s",
+            selected.get_attribute("value"),
+            selected.text.strip(),
+            driver.title,
+        )
+
+    def _trigger_final_apply(self, driver):
+        try:
+            self.navigation_service.execute_script(
+                driver,
+                "javascript:sendLotApply(document.form1, gLotWInstLotApplyAction, event);",
+            )
+            return
+        except Exception:
+            pass
+        try:
+            driver.find_element(By.ID, "btn-apply").click()
+        except Exception:
+            pass
+
+    def _classify_submission_state(self, driver):
+        title = ""
+        current_url = ""
+        try:
+            title = driver.title
+            current_url = driver.current_url
+        except Exception:
+            pass
+        try:
+            alert = driver.switch_to.alert
+            return {
+                "state": "alert",
+                "title": title,
+                "url": current_url,
+                "alert_text": alert.text,
+            }
+        except NoAlertPresentException:
+            pass
+        except Exception:
+            pass
+
+        try:
+            if self.login_service.detect_captcha(driver):
+                return {"state": "recaptcha", "title": title, "url": current_url}
+        except Exception:
+            pass
+
+        if "抽選メール送信完了画面" in title:
+            return {"state": "completed", "title": title, "url": current_url}
+        if "申込内容確認画面" in title:
+            return {"state": "confirm", "title": title, "url": current_url}
+        if "エラー" in title or "Error" in title:
+            return {"state": "error", "title": title, "url": current_url}
+        return {"state": "unknown", "title": title, "url": current_url}
+
+    def _save_submission_debug(self, driver, prefix):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        html_name = f"{prefix}_{timestamp}.html"
+        json_name = f"{prefix}_{timestamp}_dom_summary.json"
+        saved = []
+        try:
+            path = self.navigation_service.save_debug_html(driver, html_name)
+            if path is not None:
+                saved.append(str(path))
+        except Exception:
+            self.logger.exception("Failed to save submission debug HTML")
+        try:
+            path = self.navigation_service.save_dom_summary(driver, json_name)
+            if path is not None:
+                saved.append(str(path))
+        except Exception:
+            self.logger.exception("Failed to save submission debug DOM summary")
+        return saved
 
     def check_lottery(self, id_dict, output_csv_path=""):
         """Check current lottery entries and optionally save CSV."""

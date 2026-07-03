@@ -60,7 +60,7 @@ scripts/      将来の補助スクリプト置き場
 - 新しい module 起動: `python -m court_reserv.ui.app`
 - Phase 2 dry-run: `python scripts/lottery_automation_dry_run.py --preferences config/preferences.example.yaml --dry-run`
 - Lottery entry workflow: `python scripts/lottery_entry_workflow.py --preferences config/preferences.example.yaml`
-  指定曜日の枠と現在申込数を収集し、IDごとの申込み予定枠を表示したうえで `yes` と入力した場合のみ最終送信します
+  指定曜日の枠と現在申込数を収集し、IDごとの申込み予定枠を表示したうえで `yes` と入力した場合のみ最終送信します。送信後に reCAPTCHA が表示された場合は手動認証を待ち、保存済み選択情報から申込み枠選択を復元して最大1回だけ再送信します
 - Lottery result workflow: `python scripts/lottery_result_workflow.py`
   抽選結果を一覧表示し、`output/lottery_automation/` に JSON / CSV 保存します
 - Reservation confirmation assist: `python scripts/reservation_confirmation_workflow.py`
@@ -98,6 +98,7 @@ Selenium 4.6 以降では Selenium Manager が ChromeDriver の検出と取得�
 - [x] Lottery result workflow
 - [x] Reservation confirmation assist workflow
 - [x] Lottery entry slot collection workflow
+- [x] Lottery submission recovery
 - [ ] Vacant facility reservation improvements
 - [ ] Notification and operations
 
@@ -108,6 +109,7 @@ Selenium 4.6 以降では Selenium Manager が ChromeDriver の検出と取得�
 - 抽選申込みワークフローの候補自動選択
 - 抽選申込み前の確認付き送信
 - 抽選申込み画面の枠収集と current entry count 表示
+- 送信後 reCAPTCHA の手動 recovery
 - 抽選結果確認 workflow
 - 予約確定補助 workflow
 - 空き施設予約は低優先度

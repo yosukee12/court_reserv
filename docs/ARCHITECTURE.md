@@ -97,6 +97,8 @@ Issue 0025 では、Issue 0024 の当選一覧を利用して予約確定補助 
 
 Issue 0026 では、抽選申込み画面の日時一覧から指定曜日の枠だけを収集し、現在申込数を表示できるようにする。さらに `preferences.yaml` の `lottery.default_entries` / `lottery.account_overrides` を使って、IDごとの申込み予定枠を決定する。存在しない枠は警告として保存し、送信後 reCAPTCHA 復旧は扱わない。
 
+Issue 0027 では、最終送信後の状態を `alert` / 完了画面 / reCAPTCHA / エラーで判定し、reCAPTCHA が表示された場合だけユーザーの手動認証を待つ。認証完了後は保存済みの `apply` 選択値を復元して最大1回だけ再送信し、失敗時は debug HTML / DOM summary を保存する。
+
 ## Lottery Guide
 
 - 抽選申込みは利用前月 1 日 0 時から 10 日 23 時 59 分まで

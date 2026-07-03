@@ -421,12 +421,23 @@ class LotteryEntryWorkflowService:
             if account_result.get("submission_requested"):
                 submission_result = account_result.get("submission_result", {})
                 print(
-                    "- submission: requested={requested} submitted={submitted} completed={completed}".format(
+                    "- submission: requested={requested} submitted={submitted} completed={completed} recovery_triggered={recovery_triggered} recovery_attempts={recovery_attempts}".format(
                         requested=submission_result.get("requested_count", 0),
                         submitted=submission_result.get("submitted_count", 0),
                         completed=submission_result.get("completed", False),
+                        recovery_triggered=submission_result.get(
+                            "recovery_triggered", False
+                        ),
+                        recovery_attempts=submission_result.get(
+                            "recovery_attempts", 0
+                        ),
                     )
                 )
+                debug_files = submission_result.get("debug_files", [])
+                if debug_files:
+                    print("- submission debug files:")
+                    for path in debug_files:
+                        print(f"  {path}")
             else:
                 print("- submission was not executed")
 
