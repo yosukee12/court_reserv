@@ -189,6 +189,17 @@ def load_reservation_preference(path: str | Path) -> ReservationPreference:
         except Exception:
             max_entries_per_account = 2
 
+    search_weeks = lottery_data.get("search_weeks", 8)
+    if not isinstance(search_weeks, int):
+        try:
+            search_weeks = int(search_weeks)
+        except Exception:
+            search_weeks = 8
+
+    dry_run = lottery_data.get("dry_run", True)
+    if not isinstance(dry_run, bool):
+        dry_run = bool(dry_run)
+
     default_entries = lottery_data.get("default_entries", [])
     if not isinstance(default_entries, list):
         default_entries = []
@@ -219,4 +230,79 @@ def load_reservation_preference(path: str | Path) -> ReservationPreference:
         lottery_default_entries=default_entries,
         lottery_account_overrides=account_overrides,
         lottery_max_entries_per_account=max_entries_per_account,
+        lottery_search_weeks=search_weeks,
+        lottery_dry_run=dry_run,
     )
+
+
+def save_preferences_data(path: str | Path, data: dict):
+    prefs_path = Path(path)
+    prefs_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        import yaml  # type: ignore
+    except Exception:
+        yaml = None
+
+    if yaml is not None:
+        text = yaml.safe_dump(
+            data,
+            allow_unicode=True,
+            sort_keys=False,
+            default_flow_style=False,
+        )
+        prefs_path.write_text(text, encoding="utf-8")
+        return prefs_path
+
+    def dump_value(value, indent=0):
+        prefix = " " * indent
+        if isinstance(value, dict):
+            lines = []
+            for key, child in value.items():
+                if isinstance(child, (dict, list)):
+                    lines.append(f"{prefix}{key}:")
+                    lines.extend(dump_value(child, indent + 2))
+                else:
+                    lines.append(f"{prefix}{key}: {format_scalar(child)}")
+            return lines
+        if isinstance(value, list):
+            lines = []
+            for item in value:
+                if isinstance(item, dict):
+                    first = True
+                    for key, child in item.items():
+                        if isinstance(child, (dict, list)):
+                            if first:
+                                lines.append(f"{prefix}- {key}:")
+                                lines.extend(dump_value(child, indent + 4))
+                            else:
+                                lines.append(f"{prefix}  {key}:")
+                                lines.extend(dump_value(child, indent + 4))
+                        else:
+                            if first:
+                                lines.append(
+                                    f"{prefix}- {key}: {format_scalar(child)}"
+                                )
+                            else:
+                                lines.append(
+                                    f"{prefix}  {key}: {format_scalar(child)}"
+                                )
+                        first = False
+                else:
+                    lines.append(f"{prefix}- {format_scalar(item)}")
+            return lines
+        return [f"{prefix}{format_scalar(value)}"]
+
+    def format_scalar(value):
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, int):
+            return str(value)
+        text = str(value)
+        if not text:
+            return '""'
+        if any(char in text for char in [":", "#", "-", '"']) or text.strip() != text:
+            return json.dumps(text, ensure_ascii=False)
+        return text
+
+    prefs_path.write_text("\n".join(dump_value(data)) + "\n", encoding="utf-8")
+    return prefs_path

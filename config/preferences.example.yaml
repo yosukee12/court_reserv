@@ -1,42 +1,34 @@
-# Lottery automation preference example
-
 lottery:
   target_weekdays:
     - 土
-
   max_entries_per_account: 2
-
   default_entries:
     - facility: 府中の森公園
-      date: 2026-08-15
+      date: "2026-08-08"
       time_range: "09:00-11:00"
     - facility: 府中の森公園
-      date: 2026-08-15
+      date: "2026-08-08"
       time_range: "11:00-13:00"
-
   account_overrides:
     "12345678":
       entries:
         - facility: 府中の森公園
-          date: 2026-08-16
+          date: "2026-08-16"
           time_range: "09:00-11:00"
         - facility: 府中の森公園
-          date: 2026-08-16
+          date: "2026-08-16"
           time_range: "11:00-13:00"
-
+  search_weeks: 8
+  dry_run: false
 preferred_facilities:
   - park_name: 府中の森公園
     facility_name: テニス（人工芝）
-    facility_id: "12700020"
-
+    facility_id: 12700020
 preferred_weekdays:
   - 土
-
 preferred_time_ranges:
-  - "09:00-11:00"
-  - "11:00-13:00"
-
+  - "09: "00-11:00\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\""
+  - "11: "00-13:00\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\""
 preferred_court_names:
-  - "12700020"
-
+  - 12700020
 max_candidates: 10

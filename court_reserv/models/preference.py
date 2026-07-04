@@ -19,3 +19,5 @@ class ReservationPreference:
     lottery_default_entries: list[dict] = field(default_factory=list)
     lottery_account_overrides: dict[str, list[dict]] = field(default_factory=dict)
     lottery_max_entries_per_account: int = 2
+    lottery_search_weeks: int = 8
+    lottery_dry_run: bool = True

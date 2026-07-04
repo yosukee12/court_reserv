@@ -58,6 +58,8 @@ scripts/      将来の補助スクリプト置き場
 
 - 既存 GUI 起動: `python court_reserv/court_reserv.py`
 - 新しい module 起動: `python -m court_reserv.ui.app`
+- GUI では `抽選申込み自動化` / `抽選結果確認` / `予約確定補助` / `設定` を利用できます
+- GUI 下部の Log Window では Workflow の標準出力と logging をリアルタイム表示します
 - Phase 2 dry-run: `python scripts/lottery_automation_dry_run.py --preferences config/preferences.example.yaml --dry-run`
 - Lottery entry workflow: `python scripts/lottery_entry_workflow.py --preferences config/preferences.example.yaml`
   指定曜日の枠と現在申込数を収集し、IDごとの申込み予定枠を表示したうえで `yes` と入力した場合のみ最終送信します。送信後に reCAPTCHA が表示された場合は手動認証を待ち、保存済み選択情報から申込み枠選択を復元して最大1回だけ再送信します
@@ -99,6 +101,7 @@ Selenium 4.6 以降では Selenium Manager が ChromeDriver の検出と取得�
 - [x] Reservation confirmation assist workflow
 - [x] Lottery entry slot collection workflow
 - [x] Lottery submission recovery
+- [x] GUI integration and settings
 - [ ] Vacant facility reservation improvements
 - [ ] Notification and operations
 

@@ -43,14 +43,37 @@ class NavigationService:
         return self.do_action(driver, "gRsvWTransUserAttestationEndAction")
 
     def go_to_lottery_entry(self, driver):
-        return self.do_action(driver, "gLotWOpeLotSearchAction")
+        if not self.wait_until_navigation_ready(driver):
+            self.logger.warning(
+                "Lottery navigation not ready: document/form1/doAction/action are unavailable."
+            )
+            return False
+        try:
+            self.do_action(driver, "gLotWOpeLotSearchAction")
+        except Exception:
+            return False
+        return self.wait_until_lottery_search_ready(driver)
 
     def select_lottery_tennis_park(
         self,
         driver,
         park_value="1301270",
         court_value="12700020",
+        court_text="テニス（人工芝）",
     ):
+        if not self._wait_until_lottery_entry_selector_ready(driver):
+            debug_html_path = self._save_debug_html(
+                driver,
+                prefix="lottery_entry_selector_not_ready",
+            )
+            state = self._inspect_lottery_entry_selector_state(driver)
+            state["debug_html_path"] = str(debug_html_path) if debug_html_path else None
+            message = (
+                "Lottery entry selector is not ready before doLotEntry. Context: "
+                f"{json.dumps(state, ensure_ascii=False)}"
+            )
+            self.logger.error(message)
+            raise TimeoutException(message)
         self.execute_script(driver, "javascript:doLotEntry('130');")
         wait = self.wait_factory(driver, 10)
         wait.until(EC.presence_of_element_located((By.ID, "bname")))
@@ -59,12 +82,10 @@ class NavigationService:
         Select(driver.find_element(By.ID, "bname")).select_by_value(park_value)
         self.execute_script(driver, "changeBname(document.form1);")
         try:
-            wait.until(
-                lambda d: self._has_option_value(
-                    d,
-                    select_id="iname",
-                    option_value=court_value,
-                )
+            resolved_court_value = self._wait_for_lottery_iname_options(
+                driver,
+                option_value=court_value,
+                option_text=court_text,
             )
         except TimeoutException as exc:
             debug_context = self._build_select_debug_context(driver)
@@ -77,20 +98,25 @@ class NavigationService:
             )
             message = (
                 "Lottery tennis park selection timed out while waiting for "
-                f"iname option '{court_value}'. Context: "
+                f"iname option '{court_value}' or text '{court_text}'. Context: "
                 f"{json.dumps(debug_context, ensure_ascii=False)}"
             )
             self.logger.error(message)
             raise TimeoutException(message) from exc
         self._log_select_diagnostics(driver, "after_lottery_park_selection")
         iname_element = driver.find_element(By.ID, "iname")
-        Select(iname_element).select_by_value(court_value)
+        selected_by = self._select_lottery_court_option(
+            iname_element,
+            preferred_value=resolved_court_value,
+            preferred_text=court_text,
+        )
         selected_state = self._describe_select(driver, "iname")
         selected_option = self._get_selected_option_state(driver, "iname")
         onchange_value = iname_element.get_attribute("onchange")
         js_info = self._inspect_lottery_iname_javascript(driver)
         self.logger.info(
-            "after_iname_select: value=%s text=%s url=%s title=%s onchange=%s js=%s",
+            "after_iname_select: selected_by=%s value=%s text=%s url=%s title=%s onchange=%s js=%s",
+            selected_by,
             selected_option.get("value"),
             selected_option.get("text"),
             driver.current_url,
@@ -103,7 +129,12 @@ class NavigationService:
             json.dumps(selected_state.get("options", []), ensure_ascii=False),
         )
         self._trigger_iname_change(driver, iname_element, onchange_value)
-        self._wait_for_lottery_entry_calendar(driver)
+        self._wait_for_lottery_entry_calendar_with_retry(
+            driver,
+            preferred_value=resolved_court_value,
+            preferred_text=court_text,
+            onchange_value=onchange_value,
+        )
         self._save_named_debug_html(
             driver,
             "lottery_entry_after_iname_selection.html",
@@ -113,6 +144,50 @@ class NavigationService:
             "lottery_entry_after_iname_selection_dom_summary.json",
         )
         self._log_select_diagnostics(driver, "after_lottery_iname_change")
+
+    def _wait_until_lottery_entry_selector_ready(self, driver, timeout=10):
+        deadline = time.time() + max(timeout, 1)
+        last_state = {}
+        while time.time() < deadline:
+            last_state = self._inspect_lottery_entry_selector_state(driver)
+            if (
+                last_state.get("ready_state") == "complete"
+                and last_state.get("has_form1")
+                and last_state.get("has_doLotEntry")
+            ):
+                self.logger.info(
+                    "lottery entry selector ready: %s",
+                    json.dumps(last_state, ensure_ascii=False),
+                )
+                return True
+            self.sleep_func(0.5)
+        self.logger.warning(
+            "lottery entry selector not ready: %s",
+            json.dumps(last_state, ensure_ascii=False),
+        )
+        return False
+
+    def _inspect_lottery_entry_selector_state(self, driver):
+        try:
+            return self.execute_script(
+                driver,
+                """
+                return {
+                  ready_state: document.readyState || "",
+                  title: document.title || "",
+                  current_url: window.location.href,
+                  display_no: (document.querySelector('input[name="displayNo"]') || {}).value || "",
+                  has_form1: !!document.form1,
+                  has_doAction: typeof doAction === "function",
+                  has_doLotEntry: typeof doLotEntry === "function",
+                  has_lottery_action: typeof gLotWOpeLotSearchAction !== "undefined",
+                  has_bname: !!document.getElementById("bname"),
+                  has_iname: !!document.getElementById("iname"),
+                };
+                """,
+            )
+        except Exception as exc:
+            return {"error": str(exc)}
 
     def go_to_lottery_cancel_list(self, driver):
         return self.do_action(driver, "gLotWTransLotCancelListAction")
@@ -124,26 +199,344 @@ class NavigationService:
         return self.do_action(driver, "gRsvWGetCancelRsvDataAction")
 
     def go_to_temp_apply(self, driver):
-        return self.execute_script(
-            driver,
-            "javascript:doApplay(document.form1, gLotWInstTempLotApplyAction);",
-        )
-
-    def go_to_lottery_next_week(self, driver):
-        current_headers = self._get_lottery_header_dates(driver)
+        result = {
+            "success": False,
+            "method": "",
+            "pre_click": {},
+            "post_click": {},
+        }
         try:
-            driver.find_element(By.ID, "next-week").click()
+            result["pre_click"] = self.execute_script(
+                driver,
+                """
+                const button = document.getElementById("btn-go");
+                const displayNo = document.querySelector('input[name="displayNo"]');
+                return {
+                  selectFieldCnt: document.getElementById("selectFieldCnt")
+                    ? document.getElementById("selectFieldCnt").value || ""
+                    : "",
+                  display_no: displayNo ? (displayNo.value || "") : "",
+                  title: document.title || "",
+                  current_url: window.location.href,
+                  btn_go: button
+                    ? {
+                        displayed: !!(button.offsetWidth || button.offsetHeight || button.getClientRects().length),
+                        enabled: !button.disabled,
+                        onclick: button.getAttribute("onclick") || "",
+                      }
+                    : null,
+                };
+                """,
+            )
+        except Exception:
+            result["pre_click"] = {}
+
+        def _capture_post_click(alert_text=""):
+            try:
+                state = self.inspect_page_state(driver)
+            except Exception:
+                state = {}
+            state["has_apply"] = False
+            state["alert_text"] = alert_text
+            try:
+                state["has_apply"] = bool(driver.find_elements(By.ID, "apply"))
+            except Exception:
+                pass
+            return state
+
+        def _consume_alert_text():
+            try:
+                alert = driver.switch_to.alert
+                text = alert.text
+                alert.accept()
+                return text
+            except Exception:
+                return ""
+
+        def _wait_for_confirmation():
+            try:
+                self.wait_factory(driver, 5).until(
+                    lambda d: (
+                        self.inspect_page_state(d).get("display_no") == "plwca1000"
+                        or "申込内容確認画面" in getattr(d, "title", "")
+                        or bool(d.find_elements(By.ID, "apply"))
+                    )
+                )
+                return True
+            except Exception:
+                return False
+
+        try:
+            button = driver.find_element(By.ID, "btn-go")
+            self.execute_script(
+                driver,
+                "arguments[0].scrollIntoView({block: 'center'});",
+                button,
+            )
+            button.click()
+            result["method"] = "native_click"
+            alert_text = _consume_alert_text()
+            if _wait_for_confirmation():
+                result["success"] = True
+                result["post_click"] = _capture_post_click(alert_text=alert_text)
+                return result
+        except Exception:
+            pass
+
+        try:
+            button = driver.find_element(By.ID, "btn-go")
+            self.execute_script(driver, "arguments[0].click();", button)
+            result["method"] = "javascript_click"
+            alert_text = _consume_alert_text()
+            if _wait_for_confirmation():
+                result["success"] = True
+                result["post_click"] = _capture_post_click(alert_text=alert_text)
+                return result
+        except Exception:
+            pass
+
+        try:
+            self.execute_script(
+                driver,
+                "javascript:doApplay(document.form1, gLotWInstTempLotApplyAction);",
+            )
+            result["method"] = "doApplay"
+            alert_text = _consume_alert_text()
+            result["success"] = _wait_for_confirmation()
+            result["post_click"] = _capture_post_click(alert_text=alert_text)
+            return result
+        except Exception:
+            result["post_click"] = _capture_post_click(alert_text="")
+            return result
+
+    def clear_lottery_selection(self, driver):
+        try:
+            button = driver.find_element(
+                By.XPATH,
+                "//button[contains(@onclick, 'clearUsedRowColumeAll')]",
+            )
+            self.execute_script(
+                driver,
+                "arguments[0].scrollIntoView({block: 'center'});",
+                button,
+            )
+            button.click()
+            return True
+        except Exception:
+            pass
+        try:
+            self.execute_script(driver, "clearUsedRowColumeAll(document.form1);")
+            return True
+        except Exception:
+            return False
+
+    def continue_lottery_entry_from_complete(self, driver):
+        result = {
+            "success": False,
+            "fallback_used": False,
+            "display_no": "",
+            "title": "",
+            "has_usedate_table": False,
+        }
+        try:
+            button = driver.find_element(By.ID, "btn-light")
+            self.execute_script(
+                driver,
+                "arguments[0].scrollIntoView({block: 'center'});",
+                button,
+            )
+            button.click()
         except Exception:
             self.execute_script(
                 driver,
-                "doNextWeek(document.form1, gLotWTransLotInstSrchVacantAjaxAction);",
+                "javascript:doAction(document.form1, gWOpeTransLotInstSrchVacantAction);",
             )
-        self._wait_for_lottery_entry_calendar(driver)
-        updated_headers = self._get_lottery_header_dates(driver)
+        try:
+            self._wait_for_lottery_entry_calendar(driver)
+        except Exception:
+            pass
+        page_state = self.inspect_page_state(driver)
+        result.update(page_state)
+        result["success"] = bool(
+            page_state.get("has_usedate_table")
+            and page_state.get("display_no") == "plwba4000"
+        )
+        return result
+
+    def inspect_page_state(self, driver):
+        return self.execute_script(
+            driver,
+            """
+            const displayNo = document.querySelector('input[name="displayNo"]');
+            return {
+              title: document.title || "",
+              current_url: window.location.href,
+              display_no: displayNo ? (displayNo.value || "") : "",
+              has_usedate_table: !!document.getElementById("usedate-table"),
+              has_btn_go: !!document.getElementById("btn-go"),
+            };
+            """,
+        )
+
+    def wait_until_navigation_ready(self, driver, timeout=10):
+        try:
+            self.wait_factory(driver, timeout).until(
+                lambda d: self.execute_script(
+                    d,
+                    """
+                    return (
+                      document.readyState === "complete" &&
+                      typeof doAction === "function" &&
+                      !!document.form1 &&
+                      typeof gLotWOpeLotSearchAction !== "undefined"
+                    );
+                    """,
+                )
+            )
+            return True
+        except Exception:
+            return False
+
+    def wait_until_lottery_search_ready(self, driver, timeout=10):
+        try:
+            self.wait_factory(driver, timeout).until(
+                lambda d: self.execute_script(
+                    d,
+                    """
+                    return (
+                      document.readyState === "complete" &&
+                      !!document.form1 &&
+                      (
+                        (document.title || "").indexOf("抽選分類一覧画面") >= 0 ||
+                        window.location.href.indexOf("lotWOpeLotSearchAction") >= 0 ||
+                        typeof doLotEntry === "function"
+                      )
+                    );
+                    """,
+                )
+            )
+            return True
+        except Exception:
+            return False
+
+    def go_to_lottery_next_week(self, driver):
+        current_headers = self._get_lottery_header_dates(driver)
+        updated_headers = current_headers
+        methods = ("native_click", "javascript_click", "doNextWeek")
+        used_method = ""
+        for method in methods:
+            try:
+                if method == "native_click":
+                    button = driver.find_element(By.ID, "next-week")
+                    self.execute_script(
+                        driver,
+                        "arguments[0].scrollIntoView({block: 'center'});",
+                        button,
+                    )
+                    button.click()
+                elif method == "javascript_click":
+                    button = driver.find_element(By.ID, "next-week")
+                    self.execute_script(driver, "arguments[0].click();", button)
+                else:
+                    self.execute_script(
+                        driver,
+                        "doNextWeek(document.form1, gLotWTransLotInstSrchVacantAjaxAction);",
+                    )
+                used_method = method
+                self._wait_for_lottery_entry_calendar(driver)
+                updated_headers = self._wait_for_header_change(
+                    driver,
+                    previous_headers=current_headers,
+                    fallback_headers=updated_headers,
+                )
+                if updated_headers != current_headers:
+                    break
+            except Exception:
+                try:
+                    updated_headers = self._wait_for_header_change(
+                        driver,
+                        previous_headers=current_headers,
+                        fallback_headers=updated_headers,
+                        timeout=2,
+                    )
+                    if updated_headers != current_headers:
+                        used_method = method
+                        break
+                except Exception:
+                    pass
+                continue
+        self.logger.info(
+            "go_to_lottery_next_week before=%s after=%s changed=%s method=%s",
+            current_headers,
+            updated_headers,
+            updated_headers != current_headers,
+            used_method,
+        )
         return {
             "before_dates": current_headers,
             "after_dates": updated_headers,
             "changed": updated_headers != current_headers,
+            "method": used_method,
+        }
+
+    def go_to_lottery_previous_week(self, driver):
+        current_headers = self._get_lottery_header_dates(driver)
+        updated_headers = current_headers
+        methods = ("native_click", "javascript_click", "doPrevWeek")
+        used_method = ""
+        for method in methods:
+            try:
+                if method == "native_click":
+                    button = driver.find_element(By.ID, "last-week")
+                    self.execute_script(
+                        driver,
+                        "arguments[0].scrollIntoView({block: 'center'});",
+                        button,
+                    )
+                    button.click()
+                elif method == "javascript_click":
+                    button = driver.find_element(By.ID, "last-week")
+                    self.execute_script(driver, "arguments[0].click();", button)
+                else:
+                    self.execute_script(
+                        driver,
+                        "doPrevWeek(document.form1, gLotWTransLotInstSrchVacantAjaxAction);",
+                    )
+                used_method = method
+                self._wait_for_lottery_entry_calendar(driver)
+                updated_headers = self._wait_for_header_change(
+                    driver,
+                    previous_headers=current_headers,
+                    fallback_headers=updated_headers,
+                )
+                if updated_headers != current_headers:
+                    break
+            except Exception:
+                try:
+                    updated_headers = self._wait_for_header_change(
+                        driver,
+                        previous_headers=current_headers,
+                        fallback_headers=updated_headers,
+                        timeout=2,
+                    )
+                    if updated_headers != current_headers:
+                        used_method = method
+                        break
+                except Exception:
+                    pass
+                continue
+        self.logger.info(
+            "go_to_lottery_previous_week before=%s after=%s changed=%s method=%s",
+            current_headers,
+            updated_headers,
+            updated_headers != current_headers,
+            used_method,
+        )
+        return {
+            "before_dates": current_headers,
+            "after_dates": updated_headers,
+            "changed": updated_headers != current_headers,
+            "method": used_method,
         }
 
     def go_to_vacant_search(self, driver):
@@ -175,31 +568,110 @@ class NavigationService:
         options = select_state.get("options", [])
         return any(option.get("value") == option_value for option in options)
 
+    def _has_option_value_or_text(self, driver, select_id, option_value, option_text):
+        select_state = self._describe_select(driver, select_id)
+        options = select_state.get("options", [])
+        return any(
+            option.get("value") == option_value
+            or option.get("text") == option_text
+            for option in options
+        )
+
+    def _wait_for_lottery_iname_options(self, driver, option_value, option_text):
+        wait = self.wait_factory(driver, 10)
+        wait.until(
+            lambda d: self._has_option_value_or_text(
+                d,
+                select_id="iname",
+                option_value=option_value,
+                option_text=option_text,
+            )
+        )
+        deadline = time.time() + 5
+        last_snapshot = None
+        stable_count = 0
+        resolved_value = option_value
+        while time.time() < deadline:
+            select_state = self._describe_select(driver, "iname")
+            snapshot = tuple(
+                (opt.get("value"), opt.get("text"))
+                for opt in select_state.get("options", [])
+            )
+            matched_value = None
+            for opt_value, opt_text in snapshot:
+                if opt_value == option_value or opt_text == option_text:
+                    matched_value = opt_value
+                    break
+            if matched_value:
+                resolved_value = matched_value
+                if snapshot == last_snapshot:
+                    stable_count += 1
+                else:
+                    stable_count = 1
+                if stable_count >= 3:
+                    self.logger.info(
+                        "lottery iname options stabilized: resolved_value=%s options=%s",
+                        resolved_value,
+                        json.dumps(select_state.get("options", []), ensure_ascii=False),
+                    )
+                    return resolved_value
+            last_snapshot = snapshot
+            self.sleep_func(0.3)
+        self.logger.info(
+            "lottery iname options fallback without full stabilization: resolved_value=%s",
+            resolved_value,
+        )
+        return resolved_value
+
+    def _select_lottery_court_option(self, select_element, preferred_value, preferred_text):
+        select = Select(select_element)
+        for option in select.options:
+            if option.get_attribute("value") == preferred_value:
+                select.select_by_value(preferred_value)
+                return f"value:{preferred_value}"
+        for option in select.options:
+            if option.text.strip() == preferred_text:
+                select.select_by_visible_text(preferred_text)
+                return f"text:{preferred_text}"
+        raise NoSuchElementException(
+            f"Lottery court option not found: value={preferred_value} text={preferred_text}"
+        )
+
     def _describe_select(self, driver, select_id):
         try:
-            element = driver.find_element(By.ID, select_id)
-        except NoSuchElementException:
-            return {
-                "id": select_id,
-                "exists": False,
-                "value": None,
-                "options": [],
-            }
-
-        select = Select(element)
-        options = []
-        for option in select.options:
-            options.append(
-                {
-                    "value": option.get_attribute("value"),
-                    "text": option.text.strip(),
+            state = self.execute_script(
+                driver,
+                """
+                const select = document.getElementById(arguments[0]);
+                if (!select) {
+                  return {
+                    id: arguments[0],
+                    exists: false,
+                    value: null,
+                    options: [],
+                  };
                 }
+                return {
+                  id: arguments[0],
+                  exists: true,
+                  value: select.value || "",
+                  options: Array.from(select.options || []).map((option) => ({
+                    value: option.value || "",
+                    text: (option.textContent || "").trim(),
+                  })),
+                };
+                """,
+                select_id,
             )
+            if isinstance(state, dict):
+                return state
+        except Exception:
+            pass
         return {
             "id": select_id,
-            "exists": True,
-            "value": element.get_attribute("value"),
-            "options": options,
+            "exists": False,
+            "value": None,
+            "options": [],
         }
 
     def _build_select_debug_context(self, driver):
@@ -296,6 +768,7 @@ class NavigationService:
                 name: el.getAttribute("name") || "",
                 type: el.getAttribute("type") || "",
                 value: el.value || "",
+                checked: !!el.checked,
               })),
               links: pick("a", (el) => ({
                 id: el.id || "",
@@ -373,6 +846,45 @@ class NavigationService:
                 script = script[len("javascript:") :]
             self.execute_script(driver, script)
 
+    def _wait_for_lottery_entry_calendar_with_retry(
+        self,
+        driver,
+        preferred_value,
+        preferred_text,
+        onchange_value,
+    ):
+        try:
+            self._wait_for_lottery_entry_calendar(driver)
+            return
+        except TimeoutException as exc:
+            selected_option = self._get_selected_option_state(driver, "iname")
+            select_state = self._describe_select(driver, "iname")
+            has_target = any(
+                option.get("value") == preferred_value
+                or option.get("text") == preferred_text
+                for option in select_state.get("options", [])
+            )
+            selected_matches = (
+                selected_option.get("value") == preferred_value
+                or selected_option.get("text") == preferred_text
+            )
+            if not has_target or selected_matches:
+                raise
+            self.logger.info(
+                "lottery iname selection reset detected; retrying selection once. selected=%s options=%s",
+                json.dumps(selected_option, ensure_ascii=False),
+                json.dumps(select_state.get("options", []), ensure_ascii=False),
+            )
+            iname_element = driver.find_element(By.ID, "iname")
+            selected_by = self._select_lottery_court_option(
+                iname_element,
+                preferred_value=preferred_value,
+                preferred_text=preferred_text,
+            )
+            self.logger.info("lottery iname retry selected_by=%s", selected_by)
+            self._trigger_iname_change(driver, iname_element, onchange_value)
+            self._wait_for_lottery_entry_calendar(driver)
+
     def _wait_for_lottery_entry_calendar(self, driver):
         wait = self.wait_factory(driver, 15)
         try:
@@ -435,3 +947,16 @@ class NavigationService:
             ).map((input) => input.value || "");
             """,
         )
+
+    def _wait_for_header_change(self, driver, previous_headers, fallback_headers, timeout=5):
+        deadline = time.time() + max(timeout, 1)
+        latest_headers = fallback_headers
+        while time.time() < deadline:
+            try:
+                latest_headers = self._get_lottery_header_dates(driver)
+            except Exception:
+                latest_headers = fallback_headers
+            if latest_headers != previous_headers:
+                return latest_headers
+            self.sleep_func(0.2)
+        return latest_headers

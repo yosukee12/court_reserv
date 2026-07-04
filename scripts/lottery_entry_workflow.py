@@ -42,15 +42,30 @@ def _output_id_dict(id_dict, output_file_path):
     return output_file_path
 
 
-def _confirm_submission(result):
-    selected_count = sum(
-        1 for selected in result.get("selection_result", {}).values() if selected
-    )
-    if selected_count <= 0:
+def _build_entry_confirm_message(account_result, entry_result):
+    slot = (entry_result or {}).get("slot", {})
+    account_part = account_result.get("masked_user_id", "")
+    if account_result.get("account_label"):
+        account_part = f"{account_part} ({account_result.get('account_label')})"
+    lines = [
+        "Submit this lottery entry?",
+        f"Account: {account_part}",
+        f"Apply No: {entry_result.get('apply_label', '')} ({entry_result.get('apply_no', '')})",
+        f"Date: {slot.get('date', '')}",
+        f"Weekday: {slot.get('weekday', '')}",
+        f"Time: {slot.get('time_range', '')}",
+        f"Facility: {slot.get('facility', '')}",
+        f"Current entry count: {slot.get('current_entry_count', '')}",
+    ]
+    return "\n".join(lines)
+
+
+def _confirm_submission(account_result, entry_result):
+    slot = (entry_result or {}).get("slot", {})
+    if not slot:
         return ""
-    print(
-        "Submit selected lottery entries? Type 'yes' to submit. Any other input will cancel."
-    )
+    print(_build_entry_confirm_message(account_result, entry_result))
+    print("Type 'yes' to submit this entry. Any other input will cancel.")
     try:
         return input("Submit? [yes/no]: ").strip()
     except EOFError:
@@ -176,21 +191,27 @@ def main() -> int:
                     f"facility={warning.get('facility')} warning={warning.get('warning')}"
                 )
 
+    output_dir = (
+        Path(args.output_dir)
+        if args.output_dir
+        else get_output_base_path() / "lottery_automation"
+    )
+
     result = workflow_service.run(
         preference=preference,
         id_csv=args.id_csv,
         account_id=args.account_id,
         max_select=args.max_select,
         display_result_callback=preview_account_result,
-        confirm_submit_callback=_confirm_submission,
+        confirm_submit_callback=(
+            (lambda account_result, entry_result: "dry-run")
+            if preference.lottery_dry_run
+            else _confirm_submission
+        ),
+        output_dir=output_dir,
     )
     workflow_service.print_result(result)
 
-    output_dir = (
-        Path(args.output_dir)
-        if args.output_dir
-        else get_output_base_path() / "lottery_automation"
-    )
     result_path = workflow_service.save_result(result, output_dir)
     print(f"Saved workflow summary: {result_path}")
     return 0

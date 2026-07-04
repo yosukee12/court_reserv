@@ -26,24 +26,16 @@ zip -r "$ZIP_PATH" . \
   -x "*/venv/*" \
   -x ".env" \
   -x "*/.env" \
-  -x ".env.local" \
-  -x "*/.env.local" \
-  -x ".env.production" \
-  -x "*/.env.production" \
+  -x ".env.*" \
+  -x "*/.env.*" \
   -x "config.local.ini" \
   -x "*/config.local.ini" \
   -x "local.settings.json" \
   -x "*/local.settings.json" \
-  -x "debug_pages/*" \
-  -x "*/debug_pages/*" \
   -x "docs/_build/*" \
   -x "*/docs/_build/*" \
   -x "logs/*" \
   -x "*/logs/*" \
-  -x "output/*" \
-  -x "*/output/*" \
-  -x "tests/*.html" \
-  -x "*/tests/*.html" \
   -x "*.log" \
   -x "*.csv" \
   -x "*.xlsx" \

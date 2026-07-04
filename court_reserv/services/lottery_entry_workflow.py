@@ -111,6 +111,7 @@ class LotteryEntryWorkflowService:
         max_select=2,
         display_result_callback=None,
         confirm_submit_callback=None,
+        output_dir=None,
     ):
         del source_csv, search_dirs
         accounts = self.resolve_accounts(id_csv=id_csv, account_id=account_id)
@@ -123,27 +124,92 @@ class LotteryEntryWorkflowService:
             "account_source": accounts[0]["source"] if accounts else None,
             "target_weekdays": target_weekdays,
             "accounts": [],
+            "session_strategy": "created_per_account",
         }
 
-        for account in accounts:
-            account_result = self._run_for_account(
+        for index, account in enumerate(accounts):
+            account_result = self._run_account_with_retry(
                 account=account,
                 preference=preference,
                 max_select=max_select,
                 display_result_callback=display_result_callback,
                 confirm_submit_callback=confirm_submit_callback,
+                account_index=index + 1,
             )
             result["accounts"].append(account_result)
-
+            if output_dir is not None:
+                self.save_result(result, output_dir)
         return result
+
+    def _run_account_with_retry(
+        self,
+        account,
+        preference,
+        max_select,
+        display_result_callback,
+        confirm_submit_callback,
+        account_index,
+    ):
+        retryable = {
+            "login_or_navigation_not_ready",
+            "login_post_page_not_ready",
+            "login_form_not_ready",
+            "login_form_not_found",
+            "doAction_not_defined",
+            "doLotEntry_not_ready",
+            "lottery_park_selection_not_ready",
+        }
+        last_result = None
+        for attempt in range(2):
+            driver = self.browser_session.create_driver()
+            session_reused = False
+            session_mode = "created_per_account"
+            masked_user_id = self.mask_user_id(account["user_id"])
+            self.logger.info(
+                "Starting account index=%s user=%s session_mode=%s session_reused=%s",
+                account_index,
+                masked_user_id,
+                session_mode,
+                session_reused,
+            )
+            try:
+                last_result = self._run_for_account(
+                    driver=driver,
+                    account=account,
+                    preference=preference,
+                    max_select=max_select,
+                    display_result_callback=display_result_callback,
+                    confirm_submit_callback=confirm_submit_callback,
+                    session_reused=session_reused,
+                    session_mode=session_mode,
+                    account_index=account_index,
+                    attempt_index=attempt + 1,
+                )
+            finally:
+                self.browser_session.safe_quit(driver)
+            if not last_result or last_result.get("status") not in retryable or attempt >= 1:
+                return last_result
+            if last_result.get("retry_reason") == "login_alert":
+                return last_result
+            self.logger.info(
+                "Retrying account index=%s reason=%s",
+                account_index,
+                last_result.get("retry_reason"),
+            )
+        return last_result
 
     def _run_for_account(
         self,
+        driver,
         account,
         preference,
         max_select=2,
         display_result_callback=None,
         confirm_submit_callback=None,
+        session_reused=False,
+        session_mode="created",
+        account_index=1,
+        attempt_index=1,
     ):
         account_result = {
             "status": "completed",
@@ -171,26 +237,76 @@ class LotteryEntryWorkflowService:
                 "completed": False,
             },
             "submitted": False,
+            "session_reused": bool(session_reused),
+            "session_mode": session_mode,
+            "account_index": account_index,
+            "login_attempts": attempt_index,
+            "login_retry_used": attempt_index > 1,
+            "navigation_ready": False,
+            "navigation_state": {},
+            "login_state": {},
+            "last_page_state": {},
+            "retry_reason": None,
+            "entries": [],
         }
-
-        driver = self.browser_session.create_driver()
         try:
             if not self.login_service.login(driver, account["user_id"], account["password"]):
-                account_result["status"] = "login_failed"
-                account_result["error"] = "login_failed"
+                account_result["login_state"] = dict(
+                    getattr(self.login_service, "last_login_state", {}) or {}
+                )
+                account_result["last_page_state"] = self.login_service.inspect_page_state(driver)
+                login_error = getattr(self.login_service, "last_login_error", None) or "login_failed"
+                account_result["status"] = login_error
+                account_result["error"] = login_error
+                account_result["retry_reason"] = login_error
                 if display_result_callback is not None:
                     display_result_callback(account_result)
                 return account_result
 
-            self.navigation_service.go_to_lottery_entry(driver)
-            self.navigation_service.select_lottery_tennis_park(driver)
+            account_result["login_state"] = dict(
+                getattr(self.login_service, "last_login_state", {}) or {}
+            )
+            navigation_ready = self.navigation_service.wait_until_navigation_ready(driver)
+            account_result["navigation_ready"] = bool(navigation_ready)
+            account_result["navigation_state"] = self.login_service.inspect_page_state(driver)
+            self.logger.info(
+                "before go_to_lottery_entry navigation_ready=%s has_doAction=%s has_lottery_action=%s retry_count=%s",
+                navigation_ready,
+                account_result["navigation_state"].get("has_doAction"),
+                account_result["navigation_state"].get("has_lottery_action"),
+                attempt_index - 1,
+            )
+            if not self.navigation_service.go_to_lottery_entry(driver):
+                account_result["status"] = "login_or_navigation_not_ready"
+                account_result["error"] = "login_or_navigation_not_ready"
+                account_result["retry_reason"] = "login_or_navigation_not_ready"
+                account_result["last_page_state"] = self.login_service.inspect_page_state(driver)
+                if display_result_callback is not None:
+                    display_result_callback(account_result)
+                return account_result
+            try:
+                self.navigation_service.select_lottery_tennis_park(driver)
+            except Exception as exc:
+                message = str(exc)
+                status = (
+                    "doLotEntry_not_ready"
+                    if "doLotEntry" in message
+                    else "lottery_park_selection_not_ready"
+                )
+                account_result["status"] = status
+                account_result["error"] = message
+                account_result["retry_reason"] = status
+                account_result["last_page_state"] = self.login_service.inspect_page_state(driver)
+                if display_result_callback is not None:
+                    display_result_callback(account_result)
+                return account_result
 
             account_entries = self._get_account_entries(account, preference)
             collect_result = self.slot_collector.collect_slots_for_entries(
                 driver,
                 target_entries=account_entries,
                 target_weekdays=preference.lottery_target_weekdays or ["土"],
-                max_weeks=8,
+                max_weeks=preference.lottery_search_weeks or 8,
             )
             collected_slots = collect_result.get("slots", [])
             account_result["collected_slots"] = [
@@ -229,31 +345,254 @@ class LotteryEntryWorkflowService:
             if not planned_slots:
                 return account_result
 
-            selection_result = self.lottery_service.auto_select_and_submit_slots(
-                driver,
-                [slot.raw_text for slot in planned_slots if slot.raw_text],
-                submit=False,
-            )
-            account_result["selection_result"] = selection_result
-
-            if confirm_submit_callback is not None:
-                confirmation_response = confirm_submit_callback(account_result)
-                account_result["confirmation_response"] = confirmation_response
-                account_result["submission_requested"] = (
-                    str(confirmation_response).strip().lower() == "yes"
+            submission_entries = []
+            for entry_index, slot in enumerate(planned_slots[:2], start=1):
+                entry_result = self._build_entry_result(
+                    account_result=account_result,
+                    slot=slot,
+                    entry_index=entry_index,
+                    account_index=account_index,
                 )
-                if account_result["submission_requested"]:
-                    selected_count = sum(
-                        1 for selected in selection_result.values() if selected
+                account_result["entries"].append(entry_result)
+                skip_ensure_before_select = False
+                self.logger.info(
+                    "Starting entry account_index=%s entry_index=%s apply_no=%s date=%s weekday=%s time_range=%s facility=%s current_entry_count=%s",
+                    account_index,
+                    entry_index,
+                    entry_result["apply_no"],
+                    slot.date,
+                    slot.weekday,
+                    slot.time_range,
+                    entry_result["slot"]["facility"],
+                    entry_result["slot"]["current_entry_count"],
+                )
+
+                if entry_index > 1 and any(
+                    item.get("status") == "completed" for item in submission_entries
+                ):
+                    continue_result = {
+                        "success": False,
+                        "display_no": "",
+                        "fallback_used": False,
+                        "title": "",
+                    }
+                    try:
+                        continue_result = self.lottery_service.continue_after_lottery_completion(
+                            driver
+                        )
+                    except Exception:
+                        self.logger.warning(
+                            "Continue-after-completion failed; reloading lottery entry page."
+                        )
+                    if continue_result.get("success"):
+                        self.logger.info(
+                            "continue_after_completion executed=true success=true displayNo=%s title=%s url=%s",
+                            continue_result.get("display_no"),
+                            continue_result.get("title"),
+                            continue_result.get("current_url"),
+                        )
+                    else:
+                        continue_result["fallback_used"] = True
+                        continue_result["fallback_result"] = self._ensure_lottery_entry_page(
+                            driver, force_navigation=True
+                        )
+                        self.logger.info(
+                            "continue_after_completion executed=true success=false fallback_used=true displayNo=%s title=%s url=%s",
+                            continue_result.get("display_no"),
+                            continue_result.get("title"),
+                            continue_result.get("current_url"),
+                        )
+                    entry_result["continue_after_completion"] = continue_result
+                    refreshed = self._refresh_slot_for_entry(
+                        driver=driver,
+                        slot=slot,
+                        target_weekdays=preference.lottery_target_weekdays or ["土"],
+                        max_weeks=preference.lottery_search_weeks or 8,
                     )
-                    submission_result = self.lottery_service.submit_selected_slots(
+                    entry_result["search_after_continue"] = {
+                        "weeks_explored": refreshed.get("weeks_explored", 0),
+                        "matched": bool(refreshed.get("slot")),
+                        "stopped_reason": refreshed.get("stopped_reason"),
+                        "same_date_count": refreshed.get("same_date_count", 0),
+                        "same_time_count": refreshed.get("same_time_count", 0),
+                    }
+                    self.logger.info(
+                        "search_after_continue executed=true weeks_explored=%s matched=%s stopped_reason=%s same_date_count=%s same_time_count=%s ensure_skipped_before_select=%s",
+                        refreshed.get("weeks_explored", 0),
+                        bool(refreshed.get("slot")),
+                        refreshed.get("stopped_reason"),
+                        refreshed.get("same_date_count", 0),
+                        refreshed.get("same_time_count", 0),
+                        bool(refreshed.get("slot")),
+                    )
+                    if refreshed.get("slot") is not None:
+                        slot = refreshed["slot"]
+                        skip_ensure_before_select = True
+                        entry_result["slot"] = self._build_entry_result(
+                            account_result=account_result,
+                            slot=slot,
+                            entry_index=entry_index,
+                            account_index=account_index,
+                        )["slot"]
+                    else:
+                        entry_result["ensure_result"] = self._ensure_lottery_entry_page(
+                            driver
+                        )
+                        entry_result["error_message"] = (
+                            "search_after_continue did not match target slot"
+                        )
+                        entry_result["status"] = "search_unmatched"
+                        submission_entries.append(entry_result)
+                        break
+
+                if entry_index == 1:
+                    entry_result["ensure_result"] = self._ensure_lottery_entry_page(driver)
+                elif not skip_ensure_before_select:
+                    entry_result["ensure_result"] = self._ensure_lottery_entry_page(driver)
+                else:
+                    entry_result["ensure_result"] = {
+                        "called": False,
+                        "skipped": True,
+                        "reason": "matched_after_refresh",
+                    }
+                entry_result["ensure_skipped_before_select"] = skip_ensure_before_select
+                self.logger.info(
+                    "ensure executed=%s skipped=%s result=%s",
+                    entry_result["ensure_result"].get("called", False),
+                    entry_result["ensure_skipped_before_select"],
+                    json.dumps(entry_result["ensure_result"], ensure_ascii=False),
+                )
+
+                confirmation_response = ""
+                if confirm_submit_callback is not None:
+                    confirmation_response = confirm_submit_callback(
+                        account_result,
+                        entry_result,
+                    )
+                entry_result["confirmation_response"] = confirmation_response
+                account_result["confirmation_response"] = confirmation_response
+                response_key = str(confirmation_response).strip().lower()
+                if response_key == "yes":
+                    account_result["submission_requested"] = True
+                    selected = self.lottery_service.select_single_slot(driver, slot.raw_text)
+                    account_result["selection_result"][slot.raw_text] = selected
+                    entry_result["selected"] = bool(selected)
+                    entry_result["select_result"] = self.lottery_service.capture_lottery_selection_state(
                         driver,
-                        success_count=selected_count,
+                        slot.raw_text,
+                        selected=bool(selected),
                     )
-                    account_result["submission_result"] = submission_result
-                    account_result["submitted"] = (
-                        submission_result.get("submitted_count", 0) > 0
+                    self.logger.info(
+                        "select_single_slot success=%s raw_text=%s selectFieldCnt=%s selected_slots_count=%s checked_input_count=%s checked_selectUseYMD=%s checked_selectStime=%s checked_selectEtime=%s checked_selectField=%s headers=%s displayNo=%s selection_applied_to_form=%s",
+                        bool(selected),
+                        slot.raw_text,
+                        entry_result["select_result"].get("selectFieldCnt"),
+                        entry_result["select_result"].get("selected_slots_count"),
+                        entry_result["select_result"].get("checked_input_count"),
+                        entry_result["select_result"].get("checked_selectUseYMD"),
+                        entry_result["select_result"].get("checked_selectStime"),
+                        entry_result["select_result"].get("checked_selectEtime"),
+                        entry_result["select_result"].get("checked_selectField"),
+                        entry_result["select_result"].get("headers"),
+                        entry_result["select_result"].get("current_display_no"),
+                        entry_result["select_result"].get("selection_applied_to_form"),
                     )
+                    if str(entry_result["select_result"].get("selectFieldCnt", "")) != "1":
+                        entry_result["status"] = "stopped"
+                        entry_result["error_message"] = "selectFieldCnt is not 1"
+                        submission_entries.append(entry_result)
+                        break
+                    if not entry_result["select_result"].get("selection_applied_to_form"):
+                        entry_result.setdefault("debug_files", [])
+                        entry_result["debug_files"] = self.lottery_service.save_before_apply_debug(
+                            driver,
+                            account_index=account_index,
+                            entry_index=entry_index,
+                        )
+                        entry_result["status"] = "slot_selection_not_applied"
+                        entry_result["error_message"] = (
+                            "slot selection was not applied to the submit form"
+                        )
+                        submission_entries.append(entry_result)
+                        break
+                    if not selected:
+                        entry_result["status"] = "selection_failed"
+                        entry_result["error_message"] = "select_single_slot failed"
+                        submission_entries.append(entry_result)
+                        break
+                    submission_result = self.lottery_service.submit_single_selected_slot(
+                        driver,
+                        apply_no=entry_result["apply_no"],
+                        expected_slot=entry_result["slot"],
+                        account_index=account_index,
+                        entry_index=entry_index,
+                        select_result=entry_result["select_result"],
+                    )
+                    entry_result["confirm_page"] = submission_result.get("confirm_page", {})
+                    entry_result["submit_result"] = submission_result.get("submit_result", {})
+                    entry_result["recaptcha_recovery"] = submission_result.get(
+                        "recaptcha_recovery", {}
+                    )
+                    entry_result["submission_result"] = submission_result
+                    entry_result["error_message"] = submission_result.get("error_message")
+                    entry_result["status"] = submission_result.get(
+                        "status",
+                        "completed"
+                        if submission_result.get("completed")
+                        else "stopped"
+                        if submission_result.get("stopped")
+                        else "submission_failed",
+                    )
+                    entry_result["submitted"] = bool(
+                        submission_result.get("submitted_count", 0)
+                    )
+                    self.logger.info(
+                        "submit_result alert_text=%s completion_detected=%s recaptcha_detected=%s recovery_attempted=%s recovery_retry_count=%s entry_status=%s",
+                        submission_result.get("submit_result", {}).get("alert_text"),
+                        submission_result.get("submit_result", {}).get("completion_detected"),
+                        submission_result.get("submit_result", {}).get("recaptcha_detected"),
+                        submission_result.get("recaptcha_recovery", {}).get("attempted"),
+                        submission_result.get("recaptcha_recovery", {}).get("retry_count"),
+                        entry_result["status"],
+                    )
+                    if entry_result["status"] != "completed":
+                        submission_entries.append(entry_result)
+                        break
+                elif response_key == "dry-run":
+                    entry_result["status"] = "dry_run"
+                    self.logger.info(
+                        "Dry run: submission skipped for %s %s",
+                        account_result["masked_user_id"],
+                        entry_result["apply_label"],
+                    )
+                else:
+                    entry_result["status"] = "stopped_by_user"
+                submission_entries.append(entry_result)
+
+            account_result["submission_result"] = self._summarize_submission_entries(
+                submission_entries
+            )
+            account_result["submitted"] = (
+                account_result["submission_result"].get("submitted_count", 0) > 0
+            )
+            if submission_entries and all(
+                entry.get("status") == "completed" for entry in submission_entries
+            ):
+                account_result["status"] = "completed"
+            elif any(
+                entry.get("status")
+                in {
+                    "submission_failed",
+                    "selection_failed",
+                    "slot_selection_not_applied",
+                    "confirm_page_not_reached",
+                    "apply_option_missing",
+                    "confirm_mismatch",
+                    "submission_incomplete",
+                }
+                for entry in submission_entries
+            ):
+                account_result["status"] = "partial_error"
             return account_result
         except Exception as exc:
             self.logger.exception(
@@ -264,8 +603,6 @@ class LotteryEntryWorkflowService:
             if display_result_callback is not None:
                 display_result_callback(account_result)
             return account_result
-        finally:
-            self.browser_session.safe_close(driver)
 
     def _build_account_plan(
         self,
@@ -340,11 +677,188 @@ class LotteryEntryWorkflowService:
             if facility:
                 searchable = " ".join(
                     part for part in (slot.park_name, slot.facility_name) if part
-                )
-                if facility not in searchable:
+                ).strip()
+                if (
+                    searchable
+                    and facility not in searchable
+                    and searchable not in facility
+                ):
                     continue
             return slot
         return None
+
+    def _build_entry_result(self, account_result, slot, entry_index, account_index):
+        facility = " ".join(
+            part for part in (slot.park_name, slot.facility_name) if part
+        ).strip()
+        return {
+            "account_index": account_index,
+            "entry_index": entry_index,
+            "account": account_result.get("masked_user_id"),
+            "account_label": account_result.get("account_label", ""),
+            "apply_no": f"{entry_index}-1",
+            "apply_label": f"{entry_index}件目",
+            "selected": False,
+            "submitted": False,
+            "status": "pending",
+            "error_message": None,
+            "confirmation_response": None,
+            "ensure_result": {},
+            "continue_after_completion": {
+                "executed": entry_index > 1,
+            },
+            "search_after_continue": {
+                "executed": entry_index > 1,
+            },
+            "ensure_skipped_before_select": False,
+            "select_result": {},
+            "confirm_page": {},
+            "submit_result": {},
+            "recaptcha_recovery": {},
+            "submission_result": {},
+            "slot": {
+                "date": slot.date,
+                "weekday": slot.weekday,
+                "time_range": slot.time_range,
+                "facility": facility,
+                "current_entry_count": slot.applied_count,
+                "park_name": slot.park_name,
+                "facility_name": slot.facility_name,
+                "raw_text": slot.raw_text,
+            },
+        }
+
+    def _ensure_lottery_entry_page(self, driver, force_navigation=False):
+        result = {
+            "called": True,
+            "forced": bool(force_navigation),
+            "success": False,
+            "display_no": "",
+            "title": "",
+            "current_url": "",
+            "has_usedate_table": False,
+        }
+        try:
+            page_state = self.navigation_service.inspect_page_state(driver)
+            result.update(page_state)
+            if (
+                not force_navigation
+                and "利用時間設定画面" in page_state.get("title", "")
+                and page_state.get("display_no") == "plwba4000"
+                and page_state.get("has_usedate_table")
+            ):
+                result["success"] = True
+                return result
+        except Exception:
+            pass
+        if not self.navigation_service.go_to_lottery_entry(driver):
+            result["success"] = False
+            result["error"] = "login_or_navigation_not_ready"
+            return result
+        self.navigation_service.select_lottery_tennis_park(driver)
+        try:
+            page_state = self.navigation_service.inspect_page_state(driver)
+            result.update(page_state)
+            result["success"] = bool(
+                "利用時間設定画面" in page_state.get("title", "")
+                and page_state.get("display_no") == "plwba4000"
+                and page_state.get("has_usedate_table")
+            )
+        except Exception:
+            pass
+        return result
+
+    def _refresh_slot_for_entry(self, driver, slot, target_weekdays, max_weeks):
+        entry = {
+            "date": slot.date,
+            "time_range": slot.time_range,
+            "facility": " ".join(
+                part for part in (slot.park_name, slot.facility_name) if part
+            ).strip(),
+        }
+        collect_result = self.slot_collector.collect_slots_for_entries(
+            driver,
+            target_entries=[entry],
+            target_weekdays=target_weekdays,
+            max_weeks=max_weeks,
+        )
+        matched_slot = self._match_slot(
+            collect_result.get("slots", []),
+            slot.date,
+            slot.time_range,
+            entry["facility"],
+        )
+        if matched_slot is None:
+            same_date_slots = [
+                self._serialize_slot(item)
+                for item in collect_result.get("slots", [])
+                if item.date == slot.date
+            ]
+            same_time_slots = [
+                self._serialize_slot(item)
+                for item in collect_result.get("slots", [])
+                if item.date == slot.date and item.time_range == slot.time_range
+            ]
+            self.logger.warning(
+                "refresh_slot_for_entry unmatched target date=%s time_range=%s facility=%s same_date_count=%s same_time_count=%s same_time_slots=%s",
+                slot.date,
+                slot.time_range,
+                entry["facility"],
+                len(same_date_slots),
+                len(same_time_slots),
+                json.dumps(same_time_slots, ensure_ascii=False),
+            )
+        return {
+            "slot": matched_slot,
+            "weeks_explored": collect_result.get("weeks_explored", 0),
+            "stopped_reason": collect_result.get("stopped_reason"),
+            "same_date_count": len(
+                [
+                    item
+                    for item in collect_result.get("slots", [])
+                    if item.date == slot.date
+                ]
+            ),
+            "same_time_count": len(
+                [
+                    item
+                    for item in collect_result.get("slots", [])
+                    if item.date == slot.date and item.time_range == slot.time_range
+                ]
+            ),
+        }
+
+    def _summarize_submission_entries(self, entries):
+        debug_files = []
+        states = []
+        recovery_attempts = 0
+        recovery_triggered = False
+        recovery_completed = False
+        submitted_count = 0
+        requested_count = len(entries)
+        for entry in entries:
+            submission_result = entry.get("submission_result", {}) or {}
+            debug_files.extend(submission_result.get("debug_files", []))
+            states.extend(submission_result.get("states", []))
+            recovery_attempts += submission_result.get("recovery_attempts", 0)
+            recovery_triggered = recovery_triggered or submission_result.get(
+                "recovery_triggered", False
+            )
+            recovery_completed = recovery_completed or submission_result.get(
+                "recovery_completed", False
+            )
+            submitted_count += submission_result.get("submitted_count", 0)
+        return {
+            "requested_count": requested_count,
+            "submitted_count": submitted_count,
+            "completed": requested_count > 0
+            and all(entry.get("status") == "completed" for entry in entries),
+            "recovery_triggered": recovery_triggered,
+            "recovery_completed": recovery_completed,
+            "recovery_attempts": recovery_attempts,
+            "states": states,
+            "debug_files": debug_files,
+        }
 
     def print_result(self, result):
         print(f"Account source: {result.get('account_source')}")
@@ -355,6 +869,12 @@ class LotteryEntryWorkflowService:
                 account_part = f"{account_part} ({account_result.get('account_label')})"
             print(f"Account: {account_part}")
             print(f"- status={account_result.get('status')}")
+            print(
+                "- session_mode={mode} reused={reused}".format(
+                    mode=account_result.get("session_mode"),
+                    reused=account_result.get("session_reused"),
+                )
+            )
             if account_result.get("error"):
                 print(f"- error={account_result.get('error')}")
             print(f"- collected_slots={len(account_result.get('collected_slots', []))}")
@@ -417,6 +937,23 @@ class LotteryEntryWorkflowService:
                 print("- selection result:")
                 for slot_text, selected in selection_result.items():
                     print(f"  {slot_text}: {'selected' if selected else 'not selected'}")
+
+            entries = account_result.get("entries", [])
+            if entries:
+                print("- entries:")
+                for entry in entries:
+                    slot = entry.get("slot", {})
+                    print(
+                        "  {apply_label} {date} {weekday} {time_range} facility={facility} applied={applied} status={status}".format(
+                            apply_label=entry.get("apply_label"),
+                            date=slot.get("date"),
+                            weekday=slot.get("weekday"),
+                            time_range=slot.get("time_range"),
+                            facility=slot.get("facility"),
+                            applied=slot.get("current_entry_count"),
+                            status=entry.get("status"),
+                        )
+                    )
 
             if account_result.get("submission_requested"):
                 submission_result = account_result.get("submission_result", {})
