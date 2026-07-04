@@ -30,6 +30,11 @@ from court_reserv.services import (
 
 def _show_info(title, message):
     print(f"[{title}] {message}")
+    if title == "手動最終送信":
+        try:
+            input("Press Enter after manually clicking the submit button: ")
+        except EOFError:
+            pass
 
 
 def _ask_yes_no(title, message):

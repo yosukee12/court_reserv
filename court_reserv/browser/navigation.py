@@ -78,55 +78,138 @@ class NavigationService:
         wait = self.wait_factory(driver, 10)
         wait.until(EC.presence_of_element_located((By.ID, "bname")))
         wait.until(EC.presence_of_element_located((By.ID, "iname")))
+        self.logger.info(
+            "initial iname options=%s",
+            json.dumps(self._describe_select(driver, "iname").get("options", []), ensure_ascii=False),
+        )
+        initial_settle = self._wait_for_lottery_entry_initial_settle(driver)
+        self.logger.info(
+            "after initial settle hidden values=%s",
+            json.dumps(initial_settle, ensure_ascii=False),
+        )
         self._log_select_diagnostics(driver, "before_lottery_park_selection")
         Select(driver.find_element(By.ID, "bname")).select_by_value(park_value)
+        after_bname_hidden = self._inspect_lottery_hidden_selection_state(driver)
+        self.logger.info(
+            "after bname select hidden values=%s",
+            json.dumps(after_bname_hidden, ensure_ascii=False),
+        )
         self.execute_script(driver, "changeBname(document.form1);")
-        try:
-            resolved_court_value = self._wait_for_lottery_iname_options(
+        retry_count = 0
+        resolved_court_value = court_value
+        selected_by = ""
+        selected_state = {}
+        selected_option = {}
+        onchange_value = ""
+        js_info = {}
+        hidden_state = {}
+        final_iname_options = []
+        while retry_count <= 3:
+            try:
+                resolved_court_value = self._wait_for_lottery_iname_options(
+                    driver,
+                    option_value=court_value,
+                    option_text=court_text,
+                )
+            except TimeoutException as exc:
+                debug_context = self._build_select_debug_context(driver)
+                debug_html_path = self._save_debug_html(
+                    driver,
+                    prefix="lottery_tennis_park_selection_failure",
+                )
+                debug_context["debug_html_path"] = (
+                    str(debug_html_path) if debug_html_path else None
+                )
+                debug_context["retry_count"] = retry_count
+                message = (
+                    "Lottery tennis park selection timed out while waiting for "
+                    f"iname option value '{court_value}'. Context: "
+                    f"{json.dumps(debug_context, ensure_ascii=False)}"
+                )
+                self.logger.error(message)
+                raise TimeoutException(message) from exc
+            final_iname_options = self._describe_select(driver, "iname").get("options", [])
+            self.logger.info(
+                "after changeBname iname options=%s retry_count=%s",
+                json.dumps(final_iname_options, ensure_ascii=False),
+                retry_count,
+            )
+            iname_element = driver.find_element(By.ID, "iname")
+            selected_by = self._select_lottery_court_option(
+                iname_element,
+                preferred_value=resolved_court_value,
+                preferred_text=court_text,
+            )
+            selected_state = self._describe_select(driver, "iname")
+            selected_option = self._get_selected_option_state(driver, "iname")
+            onchange_value = iname_element.get_attribute("onchange")
+            js_info = self._inspect_lottery_iname_javascript(driver)
+            hidden_state = self._inspect_lottery_hidden_selection_state(driver)
+            self.logger.info(
+                "after iname select hidden values=%s retry_count=%s",
+                json.dumps(hidden_state, ensure_ascii=False),
+                retry_count,
+            )
+            if self._lottery_hidden_selection_matches(
+                hidden_state,
+                park_value=park_value,
+                court_value=resolved_court_value,
+            ):
+                break
+            self.sleep_func(0.5)
+            self.execute_script(driver, "changeBname(document.form1);")
+            retry_count += 1
+        if not self._lottery_hidden_selection_matches(
+            hidden_state,
+            park_value=park_value,
+            court_value=resolved_court_value,
+        ):
+            self._sync_lottery_hidden_selection(
                 driver,
-                option_value=court_value,
-                option_text=court_text,
+                park_value=park_value,
+                court_value=resolved_court_value,
             )
-        except TimeoutException as exc:
-            debug_context = self._build_select_debug_context(driver)
-            debug_html_path = self._save_debug_html(
-                driver,
-                prefix="lottery_tennis_park_selection_failure",
-            )
-            debug_context["debug_html_path"] = (
-                str(debug_html_path) if debug_html_path else None
-            )
+            hidden_state = self._inspect_lottery_hidden_selection_state(driver)
+        if not self._lottery_hidden_selection_matches(
+            hidden_state,
+            park_value=park_value,
+            court_value=resolved_court_value,
+        ):
             message = (
-                "Lottery tennis park selection timed out while waiting for "
-                f"iname option '{court_value}' or text '{court_text}'. Context: "
-                f"{json.dumps(debug_context, ensure_ascii=False)}"
+                "Lottery hidden selection mismatch after final sync. Context: "
+                f"{json.dumps(hidden_state, ensure_ascii=False)}"
             )
             self.logger.error(message)
-            raise TimeoutException(message) from exc
-        self._log_select_diagnostics(driver, "after_lottery_park_selection")
-        iname_element = driver.find_element(By.ID, "iname")
-        selected_by = self._select_lottery_court_option(
-            iname_element,
-            preferred_value=resolved_court_value,
-            preferred_text=court_text,
-        )
-        selected_state = self._describe_select(driver, "iname")
-        selected_option = self._get_selected_option_state(driver, "iname")
-        onchange_value = iname_element.get_attribute("onchange")
-        js_info = self._inspect_lottery_iname_javascript(driver)
+            raise TimeoutException(message)
         self.logger.info(
-            "after_iname_select: selected_by=%s value=%s text=%s url=%s title=%s onchange=%s js=%s",
+            "after_iname_select: selected_by=%s resolved_value=%s value=%s text=%s bname_value=%s bname_text=%s iname_value=%s iname_text=%s selectBldGrpCd=%s selectInstGrpCd=%s url=%s title=%s onchange=%s js=%s retry_count=%s",
             selected_by,
+            resolved_court_value,
             selected_option.get("value"),
             selected_option.get("text"),
+            selected_state.get("value"),
+            selected_state.get("text"),
+            hidden_state.get("bname_value"),
+            hidden_state.get("bname_text"),
+            hidden_state.get("iname_value"),
+            hidden_state.get("iname_text"),
+            hidden_state.get("selectBldGrpCd"),
+            hidden_state.get("selectInstGrpCd"),
             driver.current_url,
             driver.title,
             onchange_value,
             json.dumps(js_info, ensure_ascii=False),
+            retry_count,
         )
         self.logger.info(
-            "after_iname_select options=%s",
+            "after_iname_select options=%s final_bname_value=%s final_bname_text=%s final_iname_value=%s final_iname_text=%s final_selectBldGrpCd=%s final_selectInstGrpCd=%s",
             json.dumps(selected_state.get("options", []), ensure_ascii=False),
+            hidden_state.get("bname_value"),
+            hidden_state.get("bname_text"),
+            hidden_state.get("iname_value"),
+            hidden_state.get("iname_text"),
+            hidden_state.get("selectBldGrpCd"),
+            hidden_state.get("selectInstGrpCd"),
         )
         self._trigger_iname_change(driver, iname_element, onchange_value)
         self._wait_for_lottery_entry_calendar_with_retry(
@@ -144,6 +227,44 @@ class NavigationService:
             "lottery_entry_after_iname_selection_dom_summary.json",
         )
         self._log_select_diagnostics(driver, "after_lottery_iname_change")
+
+    def _wait_for_lottery_entry_initial_settle(self, driver, timeout=10):
+        deadline = time.time() + max(timeout, 1)
+        last_snapshot = None
+        last_hidden = None
+        stable_count = 0
+        while time.time() < deadline:
+            try:
+                loading_visible = self.execute_script(
+                    driver,
+                    """
+                    const loading = document.getElementById("usedate-loading");
+                    return !!loading &&
+                      loading.style.display !== "none" &&
+                      getComputedStyle(loading).display !== "none";
+                    """,
+                )
+            except Exception:
+                loading_visible = False
+            iname_state = self._describe_select(driver, "iname")
+            snapshot = tuple((opt.get("value"), opt.get("text")) for opt in iname_state.get("options", []))
+            hidden_state = self._inspect_lottery_hidden_selection_state(driver)
+            self.logger.info(
+                "initial settle snapshot=%s hidden=%s loading_visible=%s",
+                json.dumps(iname_state.get("options", []), ensure_ascii=False),
+                json.dumps(hidden_state, ensure_ascii=False),
+                loading_visible,
+            )
+            if not loading_visible and snapshot == last_snapshot and hidden_state == last_hidden:
+                stable_count += 1
+                if stable_count >= 2:
+                    return hidden_state
+            else:
+                stable_count = 0
+            last_snapshot = snapshot
+            last_hidden = hidden_state
+            self.sleep_func(0.3)
+        return last_hidden or {}
 
     def _wait_until_lottery_entry_selector_ready(self, driver, timeout=10):
         deadline = time.time() + max(timeout, 1)
@@ -188,6 +309,90 @@ class NavigationService:
             )
         except Exception as exc:
             return {"error": str(exc)}
+
+    def _inspect_lottery_hidden_selection_state(self, driver):
+        try:
+            return self.execute_script(
+                driver,
+                """
+                const getValue = (name) => {
+                  const el =
+                    document.querySelector(`input[name="${name}"]`) ||
+                    document.getElementById(name);
+                  return el ? (el.value || "") : "";
+                };
+                const bname = document.getElementById("bname");
+                const iname = document.getElementById("iname");
+                return {
+                  bname_value: bname ? (bname.value || "") : "",
+                  bname_text:
+                    bname && bname.selectedIndex >= 0 && bname.options[bname.selectedIndex]
+                      ? (bname.options[bname.selectedIndex].textContent || "").trim()
+                      : "",
+                  iname_value: iname ? (iname.value || "") : "",
+                  iname_text:
+                    iname && iname.selectedIndex >= 0 && iname.options[iname.selectedIndex]
+                      ? (iname.options[iname.selectedIndex].textContent || "").trim()
+                      : "",
+                  selectBldGrpCd: getValue("selectBldGrpCd"),
+                  selectInstGrpCd: getValue("selectInstGrpCd"),
+                };
+                """,
+            )
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    def _lottery_hidden_selection_matches(self, hidden_state, park_value, court_value):
+        hidden_state = hidden_state if isinstance(hidden_state, dict) else {}
+        bname_value = str(hidden_state.get("bname_value", "")).strip()
+        iname_value = str(hidden_state.get("iname_value", "")).strip()
+        select_bld = str(hidden_state.get("selectBldGrpCd", "")).strip()
+        select_inst = str(hidden_state.get("selectInstGrpCd", "")).strip()
+        expected_park_value = str(park_value).strip()
+        expected_court_value = str(court_value).strip()
+        return (
+            bname_value == expected_park_value
+            and iname_value == expected_court_value
+            and select_bld == expected_park_value
+            and select_inst == expected_court_value
+        )
+
+    def _sync_lottery_hidden_selection(self, driver, park_value, court_value):
+        try:
+            self.execute_script(
+                driver,
+                """
+                const setValue = (name, value) => {
+                  const el =
+                    document.querySelector(`input[name="${name}"]`) ||
+                    document.getElementById(name);
+                  if (el) {
+                    el.value = value;
+                    el.setAttribute("value", value);
+                    el.dispatchEvent(new Event("input", { bubbles: true }));
+                    el.dispatchEvent(new Event("change", { bubbles: true }));
+                  }
+                };
+                setValue("selectBldGrpCd", arguments[0]);
+                setValue("selectInstGrpCd", arguments[1]);
+                const bname = document.getElementById("bname");
+                const iname = document.getElementById("iname");
+                if (bname) {
+                  bname.value = arguments[0];
+                  bname.dispatchEvent(new Event("change", { bubbles: true }));
+                }
+                if (iname) {
+                  iname.value = arguments[1];
+                  iname.dispatchEvent(new Event("change", { bubbles: true }));
+                }
+                return true;
+                """,
+                park_value,
+                court_value,
+            )
+            return True
+        except Exception:
+            return False
 
     def go_to_lottery_cancel_list(self, driver):
         return self.do_action(driver, "gLotWTransLotCancelListAction")
@@ -573,7 +778,6 @@ class NavigationService:
         options = select_state.get("options", [])
         return any(
             option.get("value") == option_value
-            or option.get("text") == option_text
             for option in options
         )
 
@@ -599,7 +803,7 @@ class NavigationService:
             )
             matched_value = None
             for opt_value, opt_text in snapshot:
-                if opt_value == option_value or opt_text == option_text:
+                if opt_value == option_value:
                     matched_value = opt_value
                     break
             if matched_value:
@@ -621,6 +825,10 @@ class NavigationService:
             "lottery iname options fallback without full stabilization: resolved_value=%s",
             resolved_value,
         )
+        if resolved_value != option_value:
+            raise TimeoutException(
+                f"Lottery iname option value not found: expected={option_value}"
+            )
         return resolved_value
 
     def _select_lottery_court_option(self, select_element, preferred_value, preferred_text):
@@ -629,10 +837,6 @@ class NavigationService:
             if option.get_attribute("value") == preferred_value:
                 select.select_by_value(preferred_value)
                 return f"value:{preferred_value}"
-        for option in select.options:
-            if option.text.strip() == preferred_text:
-                select.select_by_visible_text(preferred_text)
-                return f"text:{preferred_text}"
         raise NoSuchElementException(
             f"Lottery court option not found: value={preferred_value} text={preferred_text}"
         )
@@ -679,10 +883,14 @@ class NavigationService:
             "current_url": driver.current_url,
             "title": driver.title,
             "bname": self._describe_select(driver, "bname"),
+            "bname_selected": self._get_selected_option_state(driver, "bname"),
             "iname": self._describe_select(driver, "iname"),
             "iname_selected": self._get_selected_option_state(driver, "iname"),
         }
         return context
+
+    def inspect_lottery_park_selection(self, driver):
+        return self._build_select_debug_context(driver)
 
     def _log_select_diagnostics(self, driver, stage):
         context = self._build_select_debug_context(driver)

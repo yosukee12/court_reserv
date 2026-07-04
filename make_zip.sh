@@ -34,9 +34,6 @@ zip -r "$ZIP_PATH" . \
   -x "*/local.settings.json" \
   -x "docs/_build/*" \
   -x "*/docs/_build/*" \
-  -x "logs/*" \
-  -x "*/logs/*" \
-  -x "*.log" \
   -x "*.csv" \
   -x "*.xlsx" \
   -x "make_zip.sh"

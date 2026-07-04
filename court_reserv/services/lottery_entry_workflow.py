@@ -402,7 +402,42 @@ class LotteryEntryWorkflowService:
                             continue_result.get("title"),
                             continue_result.get("current_url"),
                         )
+                    park_selection_state = self._ensure_lottery_tennis_park_selection(
+                        driver,
+                        account_index=account_index,
+                        entry_index=entry_index,
+                    )
+                    continue_result["park_selection_state"] = park_selection_state
+                    entry_validation = self.lottery_service.build_park_facility_validation(
+                        slot,
+                        selection_state=park_selection_state,
+                    )
+                    entry_result["validation"] = entry_validation
                     entry_result["continue_after_completion"] = continue_result
+                    if not entry_validation.get("park_facility_match", True):
+                        entry_result["search_after_continue"] = {
+                            "executed": False,
+                            "weeks_explored": 0,
+                            "matched": False,
+                            "stopped_reason": entry_validation.get("status"),
+                            "park_selection_state": park_selection_state,
+                        }
+                        entry_result["status"] = entry_validation.get(
+                            "status", "park_mismatch"
+                        )
+                        entry_result["error_message"] = (
+                            entry_validation.get("mismatch_reason")
+                            or "park/facility mismatch after continue"
+                        )
+                        entry_result.setdefault("debug_files", [])
+                        entry_result["debug_files"].extend(
+                            self.lottery_service._save_submission_debug(
+                                driver,
+                                prefix=f"lottery_park_mismatch_account{account_index}_entry{entry_index}",
+                            )
+                        )
+                        submission_entries.append(entry_result)
+                        break
                     refreshed = self._refresh_slot_for_entry(
                         driver=driver,
                         slot=slot,
@@ -415,15 +450,20 @@ class LotteryEntryWorkflowService:
                         "stopped_reason": refreshed.get("stopped_reason"),
                         "same_date_count": refreshed.get("same_date_count", 0),
                         "same_time_count": refreshed.get("same_time_count", 0),
+                        "park_selection_state": refreshed.get("park_selection_state", {}),
+                        "facility_reselected": refreshed.get("facility_reselected", False),
+                        "retry_used": refreshed.get("retry_used", False),
                     }
                     self.logger.info(
-                        "search_after_continue executed=true weeks_explored=%s matched=%s stopped_reason=%s same_date_count=%s same_time_count=%s ensure_skipped_before_select=%s",
+                        "search_after_continue executed=true weeks_explored=%s matched=%s stopped_reason=%s same_date_count=%s same_time_count=%s ensure_skipped_before_select=%s facility_reselected=%s retry_used=%s",
                         refreshed.get("weeks_explored", 0),
                         bool(refreshed.get("slot")),
                         refreshed.get("stopped_reason"),
                         refreshed.get("same_date_count", 0),
                         refreshed.get("same_time_count", 0),
                         bool(refreshed.get("slot")),
+                        refreshed.get("facility_reselected", False),
+                        refreshed.get("retry_used", False),
                     )
                     if refreshed.get("slot") is not None:
                         slot = refreshed["slot"]
@@ -482,8 +522,13 @@ class LotteryEntryWorkflowService:
                         slot.raw_text,
                         selected=bool(selected),
                     )
+                    select_validation = self.lottery_service.build_park_facility_validation(
+                        slot,
+                        selection_state=entry_result["select_result"],
+                    )
+                    entry_result["validation"] = select_validation
                     self.logger.info(
-                        "select_single_slot success=%s raw_text=%s selectFieldCnt=%s selected_slots_count=%s checked_input_count=%s checked_selectUseYMD=%s checked_selectStime=%s checked_selectEtime=%s checked_selectField=%s headers=%s displayNo=%s selection_applied_to_form=%s",
+                        "select_single_slot success=%s raw_text=%s selectFieldCnt=%s selected_slots_count=%s checked_input_count=%s checked_selectUseYMD=%s checked_selectStime=%s checked_selectEtime=%s checked_selectField=%s headers=%s displayNo=%s selection_applied_to_form=%s expected_park=%s expected_facility=%s actual_park=%s actual_facility=%s current_bname=%s current_iname=%s clicked_element_outer_html=%s target_cell_outer_html=%s",
                         bool(selected),
                         slot.raw_text,
                         entry_result["select_result"].get("selectFieldCnt"),
@@ -496,7 +541,30 @@ class LotteryEntryWorkflowService:
                         entry_result["select_result"].get("headers"),
                         entry_result["select_result"].get("current_display_no"),
                         entry_result["select_result"].get("selection_applied_to_form"),
+                        select_validation.get("expected_park_name"),
+                        select_validation.get("expected_facility_name"),
+                        select_validation.get("actual_slot_park_name"),
+                        select_validation.get("actual_slot_facility_name"),
+                        select_validation.get("current_bname_text"),
+                        select_validation.get("current_iname_text"),
+                        entry_result["select_result"].get("clicked_element_outer_html"),
+                        entry_result["select_result"].get("target_cell_outer_html"),
                     )
+                    if not select_validation.get("park_facility_match", True):
+                        entry_result["status"] = select_validation.get("status", "park_mismatch")
+                        entry_result["error_message"] = (
+                            select_validation.get("mismatch_reason")
+                            or "park/facility mismatch after selection"
+                        )
+                        entry_result.setdefault("debug_files", [])
+                        entry_result["debug_files"].extend(
+                            self.lottery_service._save_submission_debug(
+                                driver,
+                                prefix=f"lottery_park_mismatch_account{account_index}_entry{entry_index}",
+                            )
+                        )
+                        submission_entries.append(entry_result)
+                        break
                     if str(entry_result["select_result"].get("selectFieldCnt", "")) != "1":
                         entry_result["status"] = "stopped"
                         entry_result["error_message"] = "selectFieldCnt is not 1"
@@ -527,6 +595,15 @@ class LotteryEntryWorkflowService:
                         account_index=account_index,
                         entry_index=entry_index,
                         select_result=entry_result["select_result"],
+                        manual_final_submit=bool(
+                            getattr(preference, "lottery_manual_final_submit", False)
+                        ),
+                        manual_preconfirm_submit=bool(
+                            getattr(preference, "lottery_manual_preconfirm_submit", False)
+                        ),
+                    )
+                    entry_result["validation"] = submission_result.get(
+                        "validation", entry_result.get("validation", {})
                     )
                     entry_result["confirm_page"] = submission_result.get("confirm_page", {})
                     entry_result["submit_result"] = submission_result.get("submit_result", {})
@@ -588,6 +665,9 @@ class LotteryEntryWorkflowService:
                     "confirm_page_not_reached",
                     "apply_option_missing",
                     "confirm_mismatch",
+                    "park_mismatch",
+                    "facility_mismatch",
+                    "confirm_park_or_facility_mismatch",
                     "submission_incomplete",
                 }
                 for entry in submission_entries
@@ -713,6 +793,7 @@ class LotteryEntryWorkflowService:
             "ensure_skipped_before_select": False,
             "select_result": {},
             "confirm_page": {},
+            "validation": {},
             "submit_result": {},
             "recaptcha_recovery": {},
             "submission_result": {},
@@ -768,6 +849,77 @@ class LotteryEntryWorkflowService:
             pass
         return result
 
+    def _ensure_lottery_tennis_park_selection(
+        self,
+        driver,
+        account_index=None,
+        entry_index=None,
+        desired_park_value="1301270",
+        desired_park_name="府中の森公園",
+        desired_court_value="12700020",
+        desired_court_name="テニス（人工芝）",
+    ):
+        state = {
+            "checked": False,
+            "reselected": False,
+            "success": False,
+            "reason": "",
+            "current": {},
+            "expected": {
+                "bname_value": desired_park_value,
+                "bname_text": desired_park_name,
+                "iname_value": desired_court_value,
+                "iname_text": desired_court_name,
+            },
+        }
+        try:
+            current = self.lottery_service.capture_lottery_selection_state(
+                driver,
+                "",
+                selected=False,
+                include_last_info=False,
+            )
+        except Exception:
+            current = {}
+        state["current"] = current
+        state["checked"] = True
+        current_bname = str(current.get("current_bname_value", "") or "").strip()
+        current_bname_text = str(current.get("current_bname_text", "") or "").strip()
+        current_iname = str(current.get("current_iname_value", "") or "").strip()
+        current_iname_text = str(current.get("current_iname_text", "") or "").strip()
+        current_bld_hidden = str(current.get("selectBldGrpCd", "") or "").strip()
+        current_inst_hidden = str(current.get("selectInstGrpCd", "") or "").strip()
+        expected_ok = (
+            current_bname == desired_park_value
+            and current_iname == desired_court_value
+            and current_bld_hidden == desired_park_value
+            and current_inst_hidden == desired_court_value
+        )
+        state["success"] = bool(expected_ok)
+        state.update(
+            {
+                "current_bname_value": current_bname,
+                "current_bname_text": current_bname_text,
+                "current_iname_value": current_iname,
+                "current_iname_text": current_iname_text,
+                "selectBldGrpCd": current_bld_hidden,
+                "selectInstGrpCd": current_inst_hidden,
+            }
+        )
+        self.logger.info(
+            "lottery park selection check account_index=%s entry_index=%s current_bname=%s current_bname_text=%s current_iname=%s current_iname_text=%s selectBldGrpCd=%s selectInstGrpCd=%s expected_ok=%s",
+            account_index,
+            entry_index,
+            current_bname,
+            current_bname_text,
+            current_iname,
+            current_iname_text,
+            current_bld_hidden,
+            current_inst_hidden,
+            expected_ok,
+        )
+        return state
+
     def _refresh_slot_for_entry(self, driver, slot, target_weekdays, max_weeks):
         entry = {
             "date": slot.date,
@@ -776,6 +928,7 @@ class LotteryEntryWorkflowService:
                 part for part in (slot.park_name, slot.facility_name) if part
             ).strip(),
         }
+        reselect_state = self._ensure_lottery_tennis_park_selection(driver)
         collect_result = self.slot_collector.collect_slots_for_entries(
             driver,
             target_entries=[entry],
@@ -799,15 +952,16 @@ class LotteryEntryWorkflowService:
                 for item in collect_result.get("slots", [])
                 if item.date == slot.date and item.time_range == slot.time_range
             ]
-            self.logger.warning(
-                "refresh_slot_for_entry unmatched target date=%s time_range=%s facility=%s same_date_count=%s same_time_count=%s same_time_slots=%s",
-                slot.date,
-                slot.time_range,
-                entry["facility"],
-                len(same_date_slots),
-                len(same_time_slots),
-                json.dumps(same_time_slots, ensure_ascii=False),
-            )
+            if matched_slot is None:
+                self.logger.warning(
+                    "refresh_slot_for_entry unmatched target date=%s time_range=%s facility=%s same_date_count=%s same_time_count=%s same_time_slots=%s",
+                    slot.date,
+                    slot.time_range,
+                    entry["facility"],
+                    len(same_date_slots),
+                    len(same_time_slots),
+                    json.dumps(same_time_slots, ensure_ascii=False),
+                )
         return {
             "slot": matched_slot,
             "weeks_explored": collect_result.get("weeks_explored", 0),
@@ -826,6 +980,9 @@ class LotteryEntryWorkflowService:
                     if item.date == slot.date and item.time_range == slot.time_range
                 ]
             ),
+            "park_selection_state": reselect_state,
+            "facility_reselected": False,
+            "retry_used": False,
         }
 
     def _summarize_submission_entries(self, entries):
@@ -902,18 +1059,18 @@ class LotteryEntryWorkflowService:
                 for slot in planned_slots:
                     print(
                         "  {date} {weekday} {time_range} facility={facility} applied={applied}".format(
-                            date=slot.get("date"),
-                            weekday=slot.get("weekday"),
-                            time_range=slot.get("time_range"),
+                            date=self.lottery_service._slot_value(slot, "date", ""),
+                            weekday=self.lottery_service._slot_value(slot, "weekday", ""),
+                            time_range=self.lottery_service._slot_value(slot, "time_range", ""),
                             facility=" ".join(
                                 part
                                 for part in (
-                                    slot.get("park_name", ""),
-                                    slot.get("facility_name", ""),
+                                    self.lottery_service._slot_value(slot, "park_name", ""),
+                                    self.lottery_service._slot_value(slot, "facility_name", ""),
                                 )
                                 if part
                             ).strip(),
-                            applied=slot.get("applied_count"),
+                            applied=self.lottery_service._slot_value(slot, "applied_count", ""),
                         )
                     )
             else:
@@ -946,11 +1103,11 @@ class LotteryEntryWorkflowService:
                     print(
                         "  {apply_label} {date} {weekday} {time_range} facility={facility} applied={applied} status={status}".format(
                             apply_label=entry.get("apply_label"),
-                            date=slot.get("date"),
-                            weekday=slot.get("weekday"),
-                            time_range=slot.get("time_range"),
-                            facility=slot.get("facility"),
-                            applied=slot.get("current_entry_count"),
+                            date=self.lottery_service._slot_value(slot, "date", ""),
+                            weekday=self.lottery_service._slot_value(slot, "weekday", ""),
+                            time_range=self.lottery_service._slot_value(slot, "time_range", ""),
+                            facility=self.lottery_service._slot_value(slot, "facility", ""),
+                            applied=self.lottery_service._slot_value(slot, "current_entry_count", ""),
                             status=entry.get("status"),
                         )
                     )

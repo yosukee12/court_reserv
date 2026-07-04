@@ -200,6 +200,14 @@ def load_reservation_preference(path: str | Path) -> ReservationPreference:
     if not isinstance(dry_run, bool):
         dry_run = bool(dry_run)
 
+    manual_final_submit = lottery_data.get("manual_final_submit", False)
+    if not isinstance(manual_final_submit, bool):
+        manual_final_submit = bool(manual_final_submit)
+
+    manual_preconfirm_submit = lottery_data.get("manual_preconfirm_submit", False)
+    if not isinstance(manual_preconfirm_submit, bool):
+        manual_preconfirm_submit = bool(manual_preconfirm_submit)
+
     default_entries = lottery_data.get("default_entries", [])
     if not isinstance(default_entries, list):
         default_entries = []
@@ -232,6 +240,8 @@ def load_reservation_preference(path: str | Path) -> ReservationPreference:
         lottery_max_entries_per_account=max_entries_per_account,
         lottery_search_weeks=search_weeks,
         lottery_dry_run=dry_run,
+        lottery_manual_final_submit=manual_final_submit,
+        lottery_manual_preconfirm_submit=manual_preconfirm_submit,
     )
 
 

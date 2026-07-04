@@ -712,6 +712,12 @@ class Court_Reserv(tk.Frame):
             value=int(lottery_data.get("max_entries_per_account", 2))
         )
         dry_run_var = tk.BooleanVar(value=bool(lottery_data.get("dry_run", True)))
+        manual_final_submit_var = tk.BooleanVar(
+            value=bool(lottery_data.get("manual_final_submit", False))
+        )
+        manual_preconfirm_submit_var = tk.BooleanVar(
+            value=bool(lottery_data.get("manual_preconfirm_submit", False))
+        )
 
         file_frame = ttk.LabelFrame(dialog, text="ファイル", padding=12)
         file_frame.grid(row=0, column=0, sticky=tk.EW, padx=12, pady=(12, 8))
@@ -778,6 +784,16 @@ class Court_Reserv(tk.Frame):
         ttk.Checkbutton(lottery_frame, text="ドライラン", variable=dry_run_var).grid(
             row=1, column=2, columnspan=2, sticky=tk.W, pady=(8, 0)
         )
+        ttk.Checkbutton(
+            lottery_frame,
+            text="最終申込みを手動にする（切り分け用）",
+            variable=manual_final_submit_var,
+        ).grid(row=2, column=0, columnspan=4, sticky=tk.W, pady=(8, 0))
+        ttk.Checkbutton(
+            lottery_frame,
+            text="申込みボタン前を手動にする（切り分け用）",
+            variable=manual_preconfirm_submit_var,
+        ).grid(row=3, column=0, columnspan=4, sticky=tk.W, pady=(8, 0))
 
         default_tree = self._build_entry_tree(dialog, "共通申込み枠", row=2)
         overrides_tree = self._build_override_tree(dialog, row=3)
@@ -842,6 +858,8 @@ class Court_Reserv(tk.Frame):
             lottery["search_weeks"] = int(search_weeks_var.get() or 8)
             lottery["max_entries_per_account"] = int(max_entries_var.get() or 2)
             lottery["dry_run"] = bool(dry_run_var.get())
+            lottery["manual_final_submit"] = bool(manual_final_submit_var.get())
+            lottery["manual_preconfirm_submit"] = bool(manual_preconfirm_submit_var.get())
             lottery["default_entries"] = [
                 {
                     "facility": values[0],

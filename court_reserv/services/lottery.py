@@ -568,12 +568,15 @@ class LotteryService:
         return bool(result.get(slot_text))
 
     def build_slot_text(self, expected_slot):
-        if not isinstance(expected_slot, dict):
+        if expected_slot is None:
             return ""
-        date = str(expected_slot.get("date", "")).replace("-", "")
-        time_range = str(expected_slot.get("time_range", "")).strip()
-        field = str(expected_slot.get("field_number", "") or expected_slot.get("field", "")).strip()
-        applied = expected_slot.get("current_entry_count")
+        date = str(self._slot_value(expected_slot, "date", "")).replace("-", "")
+        time_range = str(self._slot_value(expected_slot, "time_range", "")).strip()
+        field = str(
+            self._slot_value(expected_slot, "field_number", "")
+            or self._slot_value(expected_slot, "field", "")
+        ).strip()
+        applied = self._slot_value(expected_slot, "current_entry_count")
         parts = [date]
         if time_range:
             parts.append(time_range.replace(":", ""))
@@ -581,7 +584,7 @@ class LotteryService:
             parts.append(f"fields:{field}")
         if applied not in (None, ""):
             parts.append(f"applied:{applied}")
-        raw_text = str(expected_slot.get("raw_text", "")).strip()
+        raw_text = str(self._slot_value(expected_slot, "raw_text", "")).strip()
         return raw_text or " ".join(parts).strip()
 
     def save_before_apply_debug(self, driver, account_index, entry_index):
@@ -614,6 +617,15 @@ class LotteryService:
             "clicked_element_outer_html": "",
             "target_cell_outer_html": "",
             "selection_applied_to_form": False,
+            "current_bname_value": "",
+            "current_bname_text": "",
+            "current_iname_value": "",
+            "current_iname_text": "",
+            "selectBldGrpCd": "",
+            "selectInstGrpCd": "",
+            "before_apply_hidden_values": {},
+            "current_park_name": "",
+            "current_facility_name": "",
         }
         try:
             captured = self.navigation_service.execute_script(
@@ -626,6 +638,24 @@ class LotteryService:
                   selectFieldCnt: document.getElementById("selectFieldCnt")
                     ? document.getElementById("selectFieldCnt").value || ""
                     : "",
+                  current_bname_value: (document.getElementById("bname") || {}).value || "",
+                  current_bname_text:
+                    (document.getElementById("bname") && document.getElementById("bname").selectedIndex >= 0 && document.getElementById("bname").options[document.getElementById("bname").selectedIndex])
+                      ? (document.getElementById("bname").options[document.getElementById("bname").selectedIndex].textContent || "").trim()
+                      : "",
+                  current_iname_value: (document.getElementById("iname") || {}).value || "",
+                  current_iname_text:
+                    (document.getElementById("iname") && document.getElementById("iname").selectedIndex >= 0 && document.getElementById("iname").options[document.getElementById("iname").selectedIndex])
+                      ? (document.getElementById("iname").options[document.getElementById("iname").selectedIndex].textContent || "").trim()
+                      : "",
+                  selectBldGrpCd:
+                    (document.querySelector('input[name="selectBldGrpCd"]') || document.getElementById("selectBldGrpCd"))
+                      ? ((document.querySelector('input[name="selectBldGrpCd"]') || document.getElementById("selectBldGrpCd")).value || "")
+                      : "",
+                  selectInstGrpCd:
+                    (document.querySelector('input[name="selectInstGrpCd"]') || document.getElementById("selectInstGrpCd"))
+                      ? ((document.querySelector('input[name="selectInstGrpCd"]') || document.getElementById("selectInstGrpCd")).value || "")
+                      : "",
                   selected_slots_count: checked('input[name="selectStime"]').length,
                   checked_input_count: checkedInputs.length,
                   checked_inputs: checkedInputs.map((el) => ({
@@ -643,9 +673,148 @@ class LotteryService:
             state.update(captured or {})
         except Exception:
             pass
+        state["current_park_name"] = state.get("current_bname_text", "")
+        state["current_facility_name"] = state.get("current_iname_text", "")
+        state["before_apply_hidden_values"] = {
+            "selectBldGrpCd": state.get("selectBldGrpCd", ""),
+            "selectInstGrpCd": state.get("selectInstGrpCd", ""),
+        }
         if include_last_info and self._last_slot_select_info:
             state.update(self._last_slot_select_info)
         return state
+
+    def _slot_value(self, slot, key, default=""):
+        if slot is None:
+            return default
+        if isinstance(slot, dict):
+            return slot.get(key, default)
+        return getattr(slot, key, default)
+
+    def build_park_facility_validation(
+        self,
+        expected_slot,
+        selection_state=None,
+        confirm_page=None,
+        validation_source="selection",
+    ):
+        selection_state = selection_state if isinstance(selection_state, dict) else {}
+        confirm_page = confirm_page if isinstance(confirm_page, dict) else {}
+        current_state = selection_state.get("current")
+        if not isinstance(current_state, dict) or not current_state:
+            current_state = selection_state
+        expected_park_name = str(self._slot_value(expected_slot, "park_name", "")).strip()
+        expected_facility_name = str(self._slot_value(expected_slot, "facility_name", "")).strip()
+        expected_date = str(self._slot_value(expected_slot, "date", "")).strip()
+        expected_time_range = str(self._slot_value(expected_slot, "time_range", "")).strip()
+        expected_field_number = str(
+            self._slot_value(expected_slot, "field_number", "")
+            or self._slot_value(expected_slot, "field", "")
+        ).strip()
+        actual_slot_park_name = str(current_state.get("current_bname_text", "")).strip()
+        actual_slot_facility_name = str(current_state.get("current_iname_text", "")).strip()
+        current_bname_value = str(current_state.get("current_bname_value", "")).strip()
+        current_bname_text = str(current_state.get("current_bname_text", "")).strip()
+        current_iname_value = str(current_state.get("current_iname_value", "")).strip()
+        current_iname_text = str(current_state.get("current_iname_text", "")).strip()
+        select_bld_grp_cd = str(current_state.get("selectBldGrpCd", "")).strip()
+        select_inst_grp_cd = str(current_state.get("selectInstGrpCd", "")).strip()
+        confirm_park_name = str(confirm_page.get("confirm_park_name", "")).strip()
+        confirm_facility_name = str(confirm_page.get("confirm_facility_name", "")).strip()
+        mismatch_reason = ""
+        park_facility_match = True
+        if expected_park_name:
+            if not actual_slot_park_name:
+                park_facility_match = False
+                mismatch_reason = (
+                    f"park missing: expected={expected_park_name} actual="
+                )
+            elif expected_park_name not in actual_slot_park_name and actual_slot_park_name not in expected_park_name:
+                park_facility_match = False
+                mismatch_reason = (
+                    f"park mismatch: expected={expected_park_name} actual={actual_slot_park_name}"
+                )
+        if park_facility_match and expected_facility_name:
+            if not actual_slot_facility_name:
+                park_facility_match = False
+                mismatch_reason = (
+                    f"facility missing: expected={expected_facility_name} actual="
+                )
+            elif expected_facility_name not in actual_slot_facility_name and actual_slot_facility_name not in expected_facility_name:
+                park_facility_match = False
+                mismatch_reason = (
+                    f"facility mismatch: expected={expected_facility_name} actual={actual_slot_facility_name}"
+                )
+        if confirm_page:
+            if expected_park_name and not confirm_park_name:
+                park_facility_match = False
+                mismatch_reason = f"confirm park missing: expected={expected_park_name}"
+            elif (
+                expected_park_name
+                and confirm_park_name
+                and expected_park_name not in confirm_park_name
+                and confirm_park_name not in expected_park_name
+            ):
+                park_facility_match = False
+                mismatch_reason = (
+                    f"confirm park mismatch: expected={expected_park_name} actual={confirm_park_name}"
+                )
+            if park_facility_match and expected_facility_name and not confirm_facility_name:
+                park_facility_match = False
+                mismatch_reason = f"confirm facility missing: expected={expected_facility_name}"
+            elif (
+                park_facility_match
+                and expected_facility_name
+                and confirm_facility_name
+                and expected_facility_name not in confirm_facility_name
+                and confirm_facility_name not in expected_facility_name
+            ):
+                park_facility_match = False
+                mismatch_reason = (
+                    f"confirm facility mismatch: expected={expected_facility_name} actual={confirm_facility_name}"
+                )
+        if park_facility_match:
+            if expected_park_name == "府中の森公園" and select_bld_grp_cd != "1301270":
+                park_facility_match = False
+                mismatch_reason = (
+                    f"hidden park mismatch: expected=1301270 actual={select_bld_grp_cd}"
+                )
+            if park_facility_match and expected_facility_name == "テニス（人工芝）" and select_inst_grp_cd != "12700020":
+                park_facility_match = False
+                mismatch_reason = (
+                    f"hidden facility mismatch: expected=12700020 actual={select_inst_grp_cd}"
+                )
+        status = "matched" if park_facility_match else "park_mismatch"
+        if not park_facility_match and "facility mismatch" in mismatch_reason:
+            status = "facility_mismatch"
+        if not park_facility_match and "confirm" in mismatch_reason:
+            status = "confirm_park_or_facility_mismatch"
+        if not park_facility_match and "hidden" in mismatch_reason:
+            status = "park_facility_selection_invalid"
+        return {
+            "validation_source": validation_source,
+            "expected_park_name": expected_park_name,
+            "expected_facility_name": expected_facility_name,
+            "date": expected_date,
+            "time_range": expected_time_range,
+            "field_number": expected_field_number,
+            "actual_slot_park_name": actual_slot_park_name,
+            "actual_slot_facility_name": actual_slot_facility_name,
+            "current_bname_value": current_bname_value,
+            "current_bname_text": current_bname_text,
+            "current_iname_value": current_iname_value,
+            "current_iname_text": current_iname_text,
+            "selectBldGrpCd": select_bld_grp_cd,
+            "selectInstGrpCd": select_inst_grp_cd,
+            "before_apply_hidden_values": {
+                "selectBldGrpCd": select_bld_grp_cd,
+                "selectInstGrpCd": select_inst_grp_cd,
+            },
+            "confirm_park_name": confirm_park_name,
+            "confirm_facility_name": confirm_facility_name,
+            "park_facility_match": bool(park_facility_match),
+            "mismatch_reason": mismatch_reason,
+            "status": status,
+        }
 
     def submit_single_selected_slot(
         self,
@@ -655,6 +824,8 @@ class LotteryService:
         account_index=None,
         entry_index=None,
         select_result=None,
+        manual_final_submit=False,
+        manual_preconfirm_submit=False,
         wait_alert_seconds=10,
     ):
         summary = {
@@ -668,6 +839,7 @@ class LotteryService:
             "states": [],
             "debug_files": [],
             "apply_no": apply_no,
+            "validation": {},
             "go_to_confirm": {},
             "confirm_page": {},
             "submit_result": {
@@ -675,6 +847,8 @@ class LotteryService:
                 "completion_detected": False,
                 "recaptcha_detected": False,
             },
+            "manual_final_submit_enabled": bool(manual_final_submit),
+            "manual_preconfirm_submit_enabled": bool(manual_preconfirm_submit),
             "recaptcha_recovery": {
                 "attempted": False,
                 "retry_count": 0,
@@ -705,8 +879,14 @@ class LotteryService:
                     driver,
                     target_slot_text,
                     selected=bool(reselected),
-                )
+            )
             summary["select_result_before_apply"] = fresh_select_result
+            validation = self.build_park_facility_validation(
+                expected_slot,
+                selection_state=fresh_select_result,
+                validation_source="before_apply",
+            )
+            summary["validation"] = validation
             summary["debug_files"].extend(
                 self._save_submission_debug(
                     driver,
@@ -714,10 +894,19 @@ class LotteryService:
                 )
             )
             self.logger.info(
-                "before_btn_go selection_ready=%s reselected=%s target_slot=%s checked_input_count=%s checked_inputs=%s selection_applied_to_form=%s displayNo=%s headers=%s checked_selectUseYMD=%s checked_selectStime=%s checked_selectEtime=%s checked_selectField=%s",
+                "before_btn_go selection_ready=%s reselected=%s target_slot=%s expected_park=%s expected_facility=%s actual_park=%s actual_facility=%s current_bname=%s current_iname=%s selectBldGrpCd=%s selectInstGrpCd=%s validation_source=%s checked_input_count=%s checked_inputs=%s selection_applied_to_form=%s displayNo=%s headers=%s checked_selectUseYMD=%s checked_selectStime=%s checked_selectEtime=%s checked_selectField=%s",
                 self._selection_ready_for_submit(fresh_select_result, expected_slot),
                 bool(reselected),
                 target_slot_text,
+                validation.get("expected_park_name"),
+                validation.get("expected_facility_name"),
+                validation.get("actual_slot_park_name"),
+                validation.get("actual_slot_facility_name"),
+                validation.get("current_bname_text"),
+                validation.get("current_iname_text"),
+                validation.get("selectBldGrpCd"),
+                validation.get("selectInstGrpCd"),
+                validation.get("validation_source"),
                 fresh_select_result.get("checked_input_count"),
                 json.dumps(fresh_select_result.get("checked_inputs", []), ensure_ascii=False),
                 fresh_select_result.get("selection_applied_to_form"),
@@ -728,12 +917,71 @@ class LotteryService:
                 fresh_select_result.get("checked_selectEtime"),
                 fresh_select_result.get("checked_selectField"),
             )
+            if not validation.get("park_facility_match", True):
+                summary["stopped"] = True
+                summary["status"] = validation.get("status", "park_mismatch")
+                summary["error_message"] = validation.get("mismatch_reason") or "park/facility mismatch"
+                summary["debug_files"].extend(
+                    self._save_submission_debug(
+                        driver,
+                        prefix=f"lottery_park_mismatch_account{account_index}_entry{entry_index}",
+                    )
+                )
+                return summary
             if not self._selection_ready_for_submit(fresh_select_result, expected_slot):
                 summary["stopped"] = True
                 summary["status"] = "slot_selection_not_applied"
                 summary["error_message"] = "slot selection was not applied to submit form"
                 return summary
-            go_to_confirm = self.navigation_service.go_to_temp_apply(driver)
+            if manual_preconfirm_submit:
+                self.logger.info("manual_preconfirm_submit_enabled=True")
+                self.logger.info("waiting_manual_preconfirm_submit")
+                self._prompt_manual_preconfirm_submit(driver)
+                self.logger.info("manual_preconfirm_submit_confirmed")
+                go_to_confirm = {
+                    "success": False,
+                    "method": "manual_click",
+                    "pre_click": self.navigation_service.execute_script(
+                        driver,
+                        """
+                        const button = document.getElementById("btn-go");
+                        const displayNo = document.querySelector('input[name="displayNo"]');
+                        return {
+                          selectFieldCnt: document.getElementById("selectFieldCnt")
+                            ? document.getElementById("selectFieldCnt").value || ""
+                            : "",
+                          display_no: displayNo ? (displayNo.value || "") : "",
+                          title: document.title || "",
+                          current_url: window.location.href,
+                          btn_go: button
+                            ? {
+                                displayed: !!(button.offsetWidth || button.offsetHeight || button.getClientRects().length),
+                                enabled: !button.disabled,
+                                onclick: button.getAttribute("onclick") || "",
+                              }
+                            : null,
+                        };
+                        """,
+                    ),
+                    "post_click": {},
+                }
+                confirm_reached = self._wait_for_confirmation_page(
+                    driver,
+                    wait_alert_seconds=wait_alert_seconds,
+                )
+                try:
+                    go_to_confirm["post_click"] = self.navigation_service.inspect_page_state(
+                        driver
+                    )
+                    go_to_confirm["success"] = bool(confirm_reached)
+                except Exception:
+                    pass
+            else:
+                go_to_confirm = self.navigation_service.go_to_temp_apply(driver)
+                confirm_reached = self._wait_for_confirmation_page(
+                    driver,
+                    wait_alert_seconds=wait_alert_seconds,
+                )
             summary["go_to_confirm"] = go_to_confirm or {}
             pre_click = (go_to_confirm or {}).get("pre_click", {})
             btn_meta = pre_click.get("btn_go") or {}
@@ -745,21 +993,47 @@ class LotteryService:
                 btn_meta.get("onclick"),
                 (go_to_confirm or {}).get("method"),
             )
-            confirm_reached = self._wait_for_confirmation_page(
-                driver,
-                wait_alert_seconds=wait_alert_seconds,
-            )
             confirm_page = self.inspect_confirmation_page(driver)
             summary["confirm_page"] = confirm_page
+            validation = self.build_park_facility_validation(
+                expected_slot,
+                selection_state=fresh_select_result,
+                confirm_page=confirm_page,
+                validation_source="confirm_page",
+            )
+            summary["validation"] = validation
             self.logger.info(
-                "btn_go post_click displayNo=%s title=%s url=%s has_apply=%s alert_text=%s confirm_reached=%s",
+                "btn_go post_click displayNo=%s title=%s url=%s has_apply=%s alert_text=%s confirm_reached=%s confirm_park_name=%s confirm_facility_name=%s park_facility_match=%s mismatch_reason=%s validation_source=%s",
                 (go_to_confirm or {}).get("post_click", {}).get("display_no"),
                 (go_to_confirm or {}).get("post_click", {}).get("title"),
                 (go_to_confirm or {}).get("post_click", {}).get("current_url"),
                 (go_to_confirm or {}).get("post_click", {}).get("has_apply"),
                 (go_to_confirm or {}).get("post_click", {}).get("alert_text"),
                 confirm_reached,
+                validation.get("confirm_park_name"),
+                validation.get("confirm_facility_name"),
+                validation.get("park_facility_match"),
+                validation.get("mismatch_reason"),
+                validation.get("validation_source"),
             )
+            if not validation.get("park_facility_match", True):
+                summary["stopped"] = True
+                summary["status"] = validation.get(
+                    "status", "confirm_park_or_facility_mismatch"
+                )
+                summary["error_message"] = (
+                    validation.get("mismatch_reason")
+                    or "confirmation page park/facility mismatch"
+                )
+                summary["debug_files"].extend(
+                    self._save_submission_debug(
+                        driver,
+                        prefix=f"lottery_park_mismatch_account{account_index}_entry{entry_index}",
+                    )
+                )
+                return summary
+            if manual_preconfirm_submit and confirm_reached:
+                self.logger.info("manual_preconfirm_submit_completed")
             summary["debug_files"].extend(
                 self._save_submission_debug(
                     driver,
@@ -799,6 +1073,7 @@ class LotteryService:
             submission_result = self._submit_with_recovery(
                 driver,
                 sel_val=apply_no,
+                manual_final_submit=manual_final_submit,
                 wait_alert_seconds=wait_alert_seconds,
             )
             summary["states"].extend(submission_result.get("states", []))
@@ -971,7 +1246,13 @@ class LotteryService:
         summary["completed"] = summary["submitted_count"] == summary["requested_count"]
         return summary
 
-    def _submit_with_recovery(self, driver, sel_val, wait_alert_seconds=10):
+    def _submit_with_recovery(
+        self,
+        driver,
+        sel_val,
+        manual_final_submit=False,
+        wait_alert_seconds=10,
+    ):
         result = {
             "completed": False,
             "recovery_triggered": False,
@@ -994,10 +1275,18 @@ class LotteryService:
         }
         max_recovery_attempts = 1
 
-        self._trigger_final_apply(driver)
+        if manual_final_submit:
+            self.logger.info("manual_final_submit_enabled=True")
+            self.logger.info("waiting_manual_final_submit")
+            self._prompt_manual_final_submit(driver)
+            self.logger.info("manual_final_submit_confirmed")
+        else:
+            self._trigger_final_apply(driver)
         if self._accept_submission_alerts(driver, result, timeout=max(wait_alert_seconds, 60)):
             if self._wait_for_completion_after_alert(driver):
                 result["completed"] = True
+                if manual_final_submit:
+                    self.logger.info("manual_final_submit_completed")
                 return result
 
         deadline = time.time() + max(wait_alert_seconds, 1) * 3
@@ -1008,6 +1297,8 @@ class LotteryService:
 
             if state_name == "completed":
                 result["completed"] = True
+                if manual_final_submit:
+                    self.logger.info("manual_final_submit_completed")
                 return result
 
             if state_name == "alert":
@@ -1128,6 +1419,8 @@ class LotteryService:
                         result["completed"] = True
                         result["recovery_completed"] = True
                         result["completion_detected_after_recaptcha"] = True
+                        if manual_final_submit:
+                            self.logger.info("manual_final_submit_completed")
                         return result
                 result["recovery_completed"] = True
                 continue
@@ -1162,6 +1455,30 @@ class LotteryService:
             )
         )
         return result
+
+    def _prompt_manual_final_submit(self, driver):
+        try:
+            self.show_info(
+                "手動最終送信",
+                "申込みボタンを手動で押してください。\n押したらOKを押してください。",
+            )
+        except Exception:
+            self.logger.info(
+                "手動最終送信: 申込みボタンを手動で押してください。押したらOKを押してください。"
+            )
+        return {}
+
+    def _prompt_manual_preconfirm_submit(self, driver):
+        try:
+            self.show_info(
+                "手動申込みボタン",
+                "申込みボタンを手動で押してください。\n押したらOKを押してください。",
+            )
+        except Exception:
+            self.logger.info(
+                "手動申込みボタン: 申込みボタンを手動で押してください。押したらOKを押してください。"
+            )
+        return {}
 
     def _accept_submission_alerts(self, driver, result, timeout=60):
         accepted = False
@@ -1406,6 +1723,8 @@ class LotteryService:
             "url": "",
             "use_date": "",
             "use_time": "",
+            "confirm_park_name": "",
+            "confirm_facility_name": "",
             "apply_options": [],
             "selected_apply_value": "",
             "selected_apply_text": "",
@@ -1448,6 +1767,27 @@ class LotteryService:
                       }
                       return "";
                     };
+                    const findAnyValue = (labels) => {
+                      const rows = [...thRows, ...summaryRows];
+                      for (const label of labels) {
+                        for (const row of rows) {
+                          const text = row.textContent || "";
+                          if (text.indexOf(label) >= 0) {
+                            const tds = Array.from(row.querySelectorAll("td"));
+                            if (tds.length >= 2) {
+                              const candidates = tds
+                                .map((td) => (td.textContent || "").replace(/\s+/g, " ").trim())
+                                .filter(Boolean);
+                              if (candidates.length >= 2) {
+                                return candidates[candidates.length - 1];
+                              }
+                              return candidates[0] || text.replace(/\s+/g, " ").trim();
+                            }
+                          }
+                        }
+                      }
+                      return "";
+                    };
                     const apply = document.getElementById("apply");
                     return {
                       displayNo: displayNo ? (displayNo.value || "") : "",
@@ -1455,6 +1795,14 @@ class LotteryService:
                       url: window.location.href,
                       use_date: findValue("利用日") || findSummaryValue("利用日"),
                       use_time: findValue("利用時間") || findSummaryValue("利用時間"),
+                      confirm_park_name:
+                        findValue("公園") ||
+                        findSummaryValue("公園") ||
+                        findAnyValue(["公園名", "利用公園", "予約施設", "施設名", "利用場所", "公園"]),
+                      confirm_facility_name:
+                        findValue("施設") ||
+                        findSummaryValue("施設") ||
+                        findAnyValue(["施設名", "利用施設", "利用場所", "会場", "施設"]),
                       apply_options: apply
                         ? Array.from(apply.options).map((opt) => ({
                             value: opt.value || "",
@@ -1538,8 +1886,8 @@ class LotteryService:
             return True
         confirm_date = self._normalize_confirm_date(confirm_page.get("use_date", ""))
         confirm_time = self._normalize_confirm_time(confirm_page.get("use_time", ""))
-        expected_date = str(expected_slot.get("date", "")).strip()
-        expected_time = str(expected_slot.get("time_range", "")).strip()
+        expected_date = str(self._slot_value(expected_slot, "date", "")).strip()
+        expected_time = str(self._slot_value(expected_slot, "time_range", "")).strip()
         return confirm_date == expected_date and confirm_time == expected_time
 
     def _normalize_confirm_date(self, text):
@@ -1572,15 +1920,16 @@ class LotteryService:
             return False
         if not expected_slot:
             return bool(select_result.get("selection_applied_to_form"))
-        expected_date = str(expected_slot.get("date", "")).replace("-", "")
+        expected_date = str(self._slot_value(expected_slot, "date", "")).replace("-", "")
         expected_start = self._normalize_hhmm_for_compare(
-            str(expected_slot.get("time_range", "")).split("-")[0]
+            str(self._slot_value(expected_slot, "time_range", "")).split("-")[0]
         )
         expected_end = self._normalize_hhmm_for_compare(
-            str(expected_slot.get("time_range", "")).split("-")[-1]
+            str(self._slot_value(expected_slot, "time_range", "")).split("-")[-1]
         )
         expected_field = str(
-            expected_slot.get("field_number", "") or expected_slot.get("field", "")
+            self._slot_value(expected_slot, "field_number", "")
+            or self._slot_value(expected_slot, "field", "")
         ).strip()
         checked_dates = [str(value) for value in select_result.get("checked_selectUseYMD", [])]
         checked_starts = [

@@ -21,3 +21,5 @@ class ReservationPreference:
     lottery_max_entries_per_account: int = 2
     lottery_search_weeks: int = 8
     lottery_dry_run: bool = True
+    lottery_manual_final_submit: bool = False
+    lottery_manual_preconfirm_submit: bool = False
