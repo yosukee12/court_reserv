@@ -1331,15 +1331,6 @@ class LotteryService:
         accepted = self._accept_submission_alerts(driver, result, timeout=max(wait_alert_seconds, 60))
         if accepted:
             _log_post_alert_snapshot("accept_alert_immediate")
-            self.sleep_func(3)
-            _log_post_alert_snapshot("accept_alert_after_3s")
-            self.sleep_func(7)
-            _log_post_alert_snapshot("accept_alert_after_10s")
-            if self._wait_for_completion_after_alert(driver):
-                result["completed"] = True
-                if manual_final_submit:
-                    self.logger.info("manual_final_submit_completed")
-                return result
 
         deadline = time.time() + max(wait_alert_seconds, 1) * 3
         while time.time() < deadline:
