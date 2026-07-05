@@ -758,10 +758,16 @@ class LotteryEntryWorkflowService:
                 searchable = " ".join(
                     part for part in (slot.park_name, slot.facility_name) if part
                 ).strip()
+                park_name = str(getattr(slot, "park_name", "") or "").strip()
+                facility_name = str(getattr(slot, "facility_name", "") or "").strip()
                 if (
                     searchable
                     and facility not in searchable
                     and searchable not in facility
+                    and (not park_name or facility not in park_name)
+                    and (not facility_name or facility not in facility_name)
+                    and (not park_name or park_name not in facility)
+                    and (not facility_name or facility_name not in facility)
                 ):
                     continue
             return slot

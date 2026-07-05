@@ -190,6 +190,7 @@ class Court_Reserv(tk.Frame):
             slot_collector=LotteryEntrySlotCollector(
                 navigation_service=self.navigation_service,
                 browser_session=self.browser_session,
+                logger=self.logger,
             ),
             logger=self.logger,
         )

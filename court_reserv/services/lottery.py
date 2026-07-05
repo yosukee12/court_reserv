@@ -1095,14 +1095,14 @@ class LotteryService:
             summary["submit_result"]["recaptcha_detected"] = submission_result.get(
                 "recaptcha_detected", False
             )
+            summary["submit_result"]["recaptcha_detected_immediately_after_alert"] = submission_result.get(
+                "recaptcha_detected_immediately_after_alert", False
+            )
             summary["submit_result"]["recaptcha_manual_prompt_shown"] = submission_result.get(
                 "recaptcha_manual_prompt_shown", False
             )
             summary["submit_result"]["recaptcha_user_confirmed"] = submission_result.get(
                 "recaptcha_user_confirmed", False
-            )
-            summary["submit_result"]["completion_detected_after_recaptcha"] = submission_result.get(
-                "completion_detected_after_recaptcha", False
             )
             summary["recaptcha_recovery"]["attempted"] = submission_result.get(
                 "recovery_triggered", False
@@ -1127,6 +1127,9 @@ class LotteryService:
             )
             summary["recaptcha_recovery"]["final_apply_retried_after_recaptcha"] = submission_result.get(
                 "final_apply_retried_after_recaptcha", False
+            )
+            summary["recaptcha_recovery"]["post_alert_monitor_state"] = submission_result.get(
+                "post_alert_monitor_state", {}
             )
             summary["submitted_count"] = 1 if summary["completed"] else 0
             if summary["completed"]:
@@ -1259,21 +1262,63 @@ class LotteryService:
             "recovery_completed": False,
             "recovery_attempts": 0,
             "recaptcha_detected": False,
+            "recaptcha_detected_immediately_after_alert": False,
             "recaptcha_manual_prompt_shown": False,
             "recaptcha_user_confirmed": False,
             "recaptcha_response_length": 0,
             "recaptcha_response_present": False,
+            "recaptcha_response_length_before_retry": 0,
             "apply_value_before_restore_after_recaptcha": "",
             "apply_restored_after_recaptcha": False,
             "apply_value_after_restore_after_recaptcha": "",
             "final_apply_retried_after_recaptcha": False,
             "completion_detected_after_recaptcha": False,
+            "completion_detected_without_recaptcha": False,
             "last_alert_text": "",
             "states": [],
             "debug_files": [],
             "manual_captcha_handled": False,
+            "post_alert_monitor_state": {},
         }
-        max_recovery_attempts = 1
+
+        def _log_post_alert_snapshot(label):
+            snapshot = {
+                "label": label,
+                "current_url": "",
+                "form_action": "",
+                "displayNo": "",
+                "loadmsg_visible": False,
+                "recaptcha_iframe_count": 0,
+                "g_recaptcha_response_length": 0,
+            }
+            try:
+                snapshot.update(
+                    self.navigation_service.execute_script(
+                        driver,
+                        """
+                        const form = document.form1 || document.querySelector('form');
+                        const displayNo = document.querySelector('input[name="displayNo"]');
+                        const loadmsg = document.getElementById('loadmsg');
+                        const gToken = document.querySelector("textarea[name='g-recaptcha-response'], textarea#g-recaptcha-response");
+                        const iframes = Array.from(document.querySelectorAll("iframe[src*='recaptcha'], iframe[title*='reCAPTCHA'], div.g-recaptcha"));
+                        return {
+                          current_url: window.location.href || '',
+                          form_action: form ? (form.getAttribute('action') || form.action || '') : '',
+                          displayNo: displayNo ? (displayNo.value || '') : '',
+                          loadmsg_visible: !!loadmsg && loadmsg.style.display !== 'none' && getComputedStyle(loadmsg).display !== 'none',
+                          recaptcha_iframe_count: iframes.length,
+                          g_recaptcha_response_length: gToken ? (gToken.value || '').length : 0,
+                        };
+                        """,
+                    )
+                )
+            except Exception:
+                pass
+            self.logger.info(
+                "post_alert_snapshot=%s",
+                json.dumps(snapshot, ensure_ascii=False),
+            )
+            return snapshot
 
         if manual_final_submit:
             self.logger.info("manual_final_submit_enabled=True")
@@ -1282,7 +1327,14 @@ class LotteryService:
             self.logger.info("manual_final_submit_confirmed")
         else:
             self._trigger_final_apply(driver)
-        if self._accept_submission_alerts(driver, result, timeout=max(wait_alert_seconds, 60)):
+
+        accepted = self._accept_submission_alerts(driver, result, timeout=max(wait_alert_seconds, 60))
+        if accepted:
+            _log_post_alert_snapshot("accept_alert_immediate")
+            self.sleep_func(3)
+            _log_post_alert_snapshot("accept_alert_after_3s")
+            self.sleep_func(7)
+            _log_post_alert_snapshot("accept_alert_after_10s")
             if self._wait_for_completion_after_alert(driver):
                 result["completed"] = True
                 if manual_final_submit:
@@ -1293,15 +1345,15 @@ class LotteryService:
         while time.time() < deadline:
             state = self._classify_submission_state(driver)
             result["states"].append(state)
-            state_name = state.get("state")
 
-            if state_name == "completed":
+            if state.get("state") == "completed":
                 result["completed"] = True
+                result["completion_detected_without_recaptcha"] = True
                 if manual_final_submit:
                     self.logger.info("manual_final_submit_completed")
                 return result
 
-            if state_name == "alert":
+            if state.get("state") == "alert":
                 try:
                     alert = driver.switch_to.alert
                     alert_text = alert.text
@@ -1313,23 +1365,12 @@ class LotteryService:
                 self.sleep_func(0.3)
                 continue
 
-            if state_name == "recaptcha":
+            if state.get("state") == "recaptcha":
                 if result.get("manual_captcha_handled"):
                     self.sleep_func(0.3)
                     continue
                 result["recaptcha_detected"] = True
-                if result["recovery_attempts"] >= max_recovery_attempts:
-                    self.logger.warning(
-                        "reCAPTCHA recovery already retried once for %s", sel_val
-                    )
-                    result["debug_files"].extend(
-                        self._save_submission_debug(
-                            driver,
-                            prefix=f"lottery_submission_recaptcha_exhausted_{sel_val.replace('-', '_')}",
-                        )
-                    )
-                    return result
-                result["recovery_triggered"] = True
+                result["recaptcha_detected_immediately_after_alert"] = True
                 manual_state = self.login_service.wait_for_manual_captcha(
                     driver,
                     return_state=True,
@@ -1363,30 +1404,22 @@ class LotteryService:
                         )
                     )
                     return result
+
                 result["manual_captcha_handled"] = True
+                result["recovery_triggered"] = True
                 result["recovery_attempts"] += 1
-                try:
-                    self._get_wait(driver, wait_alert_seconds).until(
-                        lambda d: "申込内容確認画面" in d.title
-                    )
-                except Exception:
-                    pass
                 try:
                     current_apply = self._get_selected_apply_state(driver)
                 except Exception:
                     current_apply = {"value": "", "text": ""}
-                result["apply_value_before_restore_after_recaptcha"] = current_apply.get(
-                    "value", ""
-                )
+                result["apply_value_before_restore_after_recaptcha"] = current_apply.get("value", "")
                 restore_ok = self._restore_apply_selection(driver, sel_val)
                 result["apply_restored_after_recaptcha"] = bool(restore_ok)
                 try:
                     restored_apply = self._get_selected_apply_state(driver)
                 except Exception:
                     restored_apply = {"value": "", "text": ""}
-                result["apply_value_after_restore_after_recaptcha"] = restored_apply.get(
-                    "value", ""
-                )
+                result["apply_value_after_restore_after_recaptcha"] = restored_apply.get("value", "")
                 self.logger.info(
                     "apply_value_before_restore_after_recaptcha=%s apply_restored_after_recaptcha=%s apply_value_after_restore_after_recaptcha=%s",
                     result["apply_value_before_restore_after_recaptcha"],
@@ -1407,7 +1440,10 @@ class LotteryService:
                         )
                     )
                     return result
-                self.sleep_func(0.2)
+
+                result["recaptcha_response_length_before_retry"] = result.get(
+                    "recaptcha_response_length", 0
+                )
                 self._trigger_final_apply(driver)
                 result["final_apply_retried_after_recaptcha"] = True
                 if self._accept_submission_alerts(
@@ -1415,6 +1451,7 @@ class LotteryService:
                     result,
                     timeout=max(wait_alert_seconds, 60),
                 ):
+                    _log_post_alert_snapshot("recaptcha_retry_accept_alert_immediate")
                     if self._wait_for_completion_after_alert(driver):
                         result["completed"] = True
                         result["recovery_completed"] = True
@@ -1425,15 +1462,11 @@ class LotteryService:
                 result["recovery_completed"] = True
                 continue
 
-            if state_name == "confirm":
+            if state.get("state") in {"confirm", "unknown"}:
                 self.sleep_func(0.3)
                 continue
 
-            if state_name == "unknown":
-                self.sleep_func(0.3)
-                continue
-
-            if state_name == "error":
+            if state.get("state") == "error":
                 result["debug_files"].extend(
                     self._save_submission_debug(
                         driver,
@@ -1442,14 +1475,9 @@ class LotteryService:
                 )
                 return result
 
+            self.sleep_func(0.3)
         result["debug_files"].extend(
             self._save_submission_debug(
-                driver,
-                prefix=f"lottery_submission_timeout_{sel_val.replace('-', '_')}",
-            )
-        )
-        result["debug_files"].extend(
-            self._save_recaptcha_debug(
                 driver,
                 prefix=f"lottery_submission_timeout_{sel_val.replace('-', '_')}",
             )
@@ -1535,6 +1563,181 @@ class LotteryService:
         except Exception:
             return False
 
+    def _wait_for_completion_or_recaptcha_after_alert(
+        self,
+        driver,
+        result,
+        sel_val,
+        timeout=15,
+        recaptcha_enabled=True,
+    ):
+        def _capture_monitor_state():
+            state = {
+                "alert_present": False,
+                "alert_text": "",
+                "recaptcha_visible": False,
+                "response_present": False,
+                "response_length": 0,
+                "current_state": "unknown",
+            }
+            try:
+                alert = driver.switch_to.alert
+                state["alert_present"] = True
+                state["alert_text"] = alert.text
+            except NoAlertPresentException:
+                pass
+            except Exception:
+                pass
+            try:
+                recaptcha_state = self.login_service.inspect_recaptcha_state(driver)
+            except Exception:
+                recaptcha_state = {}
+            try:
+                response_info = self.login_service.get_recaptcha_response_info(driver)
+            except Exception:
+                response_info = {}
+            state["recaptcha_visible"] = bool(recaptcha_state.get("requires_manual", False))
+            state["response_length"] = int(response_info.get("response_length", 0) or 0)
+            state["response_present"] = bool(response_info.get("response_present", False))
+            if state["alert_present"]:
+                state["current_state"] = "alert"
+            elif state["recaptcha_visible"]:
+                state["current_state"] = "recaptcha"
+            elif self._is_lottery_completion_page(driver):
+                state["current_state"] = "completed"
+            return state
+
+        def _log_monitor_state(state):
+            self.logger.info(
+                "final_apply_monitor_state=%s",
+                json.dumps(state, ensure_ascii=False),
+            )
+
+        def _accept_current_alert(state):
+            try:
+                alert = driver.switch_to.alert
+                alert.accept()
+                result["last_alert_text"] = state.get("alert_text", "")
+                self.logger.info("Accepted confirmation alert: %s", state.get("alert_text", ""))
+                return True
+            except Exception:
+                return False
+
+        def _restore_after_captcha():
+            try:
+                current_apply = self._get_selected_apply_state(driver)
+            except Exception:
+                current_apply = {"value": "", "text": ""}
+            result["apply_value_before_restore_after_recaptcha"] = current_apply.get("value", "")
+            restore_ok = self._restore_apply_selection(driver, sel_val)
+            result["apply_restored_after_recaptcha"] = bool(restore_ok)
+            try:
+                restored_apply = self._get_selected_apply_state(driver)
+            except Exception:
+                restored_apply = {"value": "", "text": ""}
+            result["apply_value_after_restore_after_recaptcha"] = restored_apply.get("value", "")
+            self.logger.info(
+                "apply_value_before_restore_after_recaptcha=%s apply_restored_after_recaptcha=%s apply_value_after_restore_after_recaptcha=%s",
+                result["apply_value_before_restore_after_recaptcha"],
+                result["apply_restored_after_recaptcha"],
+                result["apply_value_after_restore_after_recaptcha"],
+            )
+            return bool(restore_ok and result["apply_value_after_restore_after_recaptcha"] == sel_val)
+
+        self.logger.info("final_apply_monitoring_started interval=0.3")
+        deadline = time.time() + max(timeout, 1)
+        monitor_interval = 0.3
+        while time.time() < deadline:
+            state = _capture_monitor_state()
+            result["states"].append(state)
+            result["post_alert_monitor_state"] = state
+            _log_monitor_state(state)
+
+            if state.get("current_state") == "completed":
+                return "completed"
+
+            if state.get("alert_present"):
+                _accept_current_alert(state)
+                self.sleep_func(monitor_interval)
+                continue
+
+            if recaptcha_enabled and state.get("current_state") == "recaptcha":
+                if result.get("manual_captcha_handled"):
+                    if state.get("response_present") or int(state.get("response_length", 0) or 0) > 0:
+                        self.logger.info(
+                            "recaptcha_solved_pending_submit response_length=%s response_present=%s",
+                            state.get("response_length", 0),
+                            state.get("response_present", False),
+                        )
+                    self.sleep_func(monitor_interval)
+                    continue
+
+                result["recaptcha_detected"] = True
+                result["recaptcha_detected_immediately_after_alert"] = True
+                manual_state = self.login_service.wait_for_manual_captcha(
+                    driver,
+                    return_state=True,
+                )
+                result["recaptcha_manual_prompt_shown"] = bool(
+                    manual_state.get("prompt_shown", False)
+                )
+                result["recaptcha_user_confirmed"] = bool(
+                    manual_state.get("confirmed", False)
+                )
+                result["recaptcha_response_length"] = int(
+                    manual_state.get("response_length", 0) or 0
+                )
+                result["recaptcha_response_present"] = bool(
+                    manual_state.get("response_present", False)
+                )
+                self.logger.info(
+                    "recaptcha_manual_prompt_shown=%s recaptcha_user_confirmed=%s recaptcha_response_length=%s",
+                    result["recaptcha_manual_prompt_shown"],
+                    result["recaptcha_user_confirmed"],
+                    result["recaptcha_response_length"],
+                )
+                if not result["recaptcha_user_confirmed"]:
+                    self.logger.warning(
+                        "User cancelled captcha handling during recovery for %s", sel_val
+                    )
+                    result["debug_files"].extend(
+                        self._save_submission_debug(
+                            driver,
+                            prefix=f"lottery_submission_recaptcha_cancelled_{sel_val.replace('-', '_')}",
+                        )
+                    )
+                    return "recaptcha_cancelled"
+
+                result["manual_captcha_handled"] = True
+                result["recovery_triggered"] = True
+                result["recovery_attempts"] += 1
+                if not _restore_after_captcha():
+                    result["debug_files"].extend(
+                        self._save_submission_debug(
+                            driver,
+                            prefix=f"lottery_submission_apply_restore_failed_after_recaptcha_{sel_val.replace('-', '_')}",
+                        )
+                    )
+                    result["debug_files"].extend(
+                        self._save_recaptcha_debug(
+                            driver,
+                            prefix=f"lottery_submission_apply_restore_failed_after_recaptcha_{sel_val.replace('-', '_')}",
+                        )
+                    )
+                    return "apply_restore_failed_after_recaptcha"
+
+                self.logger.info(
+                    "recaptcha_response_length_before_retry=%s",
+                    result.get("recaptcha_response_length", 0),
+                )
+                self._trigger_final_apply(driver)
+                self.sleep_func(monitor_interval)
+                continue
+
+            self.sleep_func(monitor_interval)
+
+        return "timeout"
+
     def _is_lottery_completion_page(self, driver):
         try:
             title = driver.title
@@ -1595,28 +1798,38 @@ class LotteryService:
         return True
 
     def _trigger_final_apply(self, driver):
+        def _snapshot():
+            try:
+                return self.navigation_service.execute_script(
+                    driver,
+                    """
+                    const button = document.getElementById("btn-go");
+                    const displayNo = document.querySelector('input[name="displayNo"]');
+                    const apply = document.getElementById("apply");
+                    return {
+                      display_no: displayNo ? displayNo.value || "" : "",
+                      title: document.title || "",
+                      url: window.location.href,
+                      has_btn_go: !!button,
+                      btn_displayed: button ? !!(button.offsetWidth || button.offsetHeight || button.getClientRects().length) : false,
+                      btn_enabled: button ? !button.disabled : false,
+                      btn_onclick: button ? button.getAttribute("onclick") || "" : "",
+                      apply_value: apply ? apply.value || "" : "",
+                    };
+                    """,
+                )
+            except Exception:
+                return {}
+
+        result = {
+            "method_attempted": "",
+            "before_state": {},
+        }
         try:
-            state = self.navigation_service.execute_script(
-                driver,
-                """
-                const button = document.getElementById("btn-go");
-                const displayNo = document.querySelector('input[name="displayNo"]');
-                const apply = document.getElementById("apply");
-                return {
-                  display_no: displayNo ? displayNo.value || "" : "",
-                  title: document.title || "",
-                  url: window.location.href,
-                  has_btn_go: !!button,
-                  btn_displayed: button ? !!(button.offsetWidth || button.offsetHeight || button.getClientRects().length) : false,
-                  btn_enabled: button ? !button.disabled : false,
-                  btn_onclick: button ? button.getAttribute("onclick") || "" : "",
-                  apply_value: apply ? apply.value || "" : "",
-                };
-                """,
-            )
+            result["before_state"] = _snapshot()
             self.logger.info(
                 "trigger_final_apply pre_click state=%s",
-                json.dumps(state, ensure_ascii=False),
+                json.dumps(result["before_state"], ensure_ascii=False),
             )
         except Exception:
             self.logger.info("trigger_final_apply pre_click state unavailable")
@@ -1628,30 +1841,14 @@ class LotteryService:
                 "arguments[0].scrollIntoView({block: 'center'});",
                 button,
             )
+            result["method_attempted"] = "native_click"
+            self.logger.info("final_apply_click_started method=native_click")
             button.click()
-            self.logger.info("trigger_final_apply method=native_click")
-            return
+            return result
         except Exception as exc:
             self.logger.warning("trigger_final_apply native_click failed: %s", exc)
 
-        try:
-            button = driver.find_element(By.ID, "btn-go")
-            self.navigation_service.execute_script(driver, "arguments[0].click();", button)
-            self.logger.info("trigger_final_apply method=javascript_click")
-            return
-        except Exception as exc:
-            self.logger.warning("trigger_final_apply javascript_click failed: %s", exc)
-
-        try:
-            self.navigation_service.execute_script(
-                driver,
-                "javascript:sendLotApply(document.form1, gLotWInstLotApplyAction, event);",
-            )
-            self.logger.info("trigger_final_apply method=sendLotApply")
-            return
-        except Exception as exc:
-            self.logger.warning("trigger_final_apply sendLotApply failed: %s", exc)
-            raise
+        return result
 
     def _capture_apply_debug_context(self, driver):
         context = {

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -16,9 +17,10 @@ WEEKDAY_LABELS = ["月", "火", "水", "木", "金", "土", "日"]
 class LotteryEntrySlotCollector:
     """Collect and filter currently visible lottery-entry slots."""
 
-    def __init__(self, navigation_service, browser_session):
+    def __init__(self, navigation_service, browser_session, logger=None):
         self.navigation_service = navigation_service
         self.browser_session = browser_session
+        self.logger = logger or logging.getLogger(__name__)
 
     def collect_slots(self, driver, target_weekdays=None):
         """Collect visible slots and filter by target weekdays."""
@@ -82,17 +84,26 @@ class LotteryEntrySlotCollector:
     ):
         """Collect slots across weekly pages until target entries are found or the limit is hit."""
         target_entries = [entry for entry in (target_entries or []) if isinstance(entry, dict)]
-        desired_keys = {
-            self._entry_key(
-                date=str(entry.get("date", "")).strip(),
-                time_range=str(entry.get("time_range", "")).strip(),
-                facility=str(entry.get("facility", "")).strip(),
+        desired_keys = []
+        desired_details = []
+        for entry in target_entries:
+            date = str(entry.get("date", "")).strip()
+            time_range = str(entry.get("time_range", "")).strip()
+            facility = str(entry.get("facility", "")).strip()
+            if not date or not time_range:
+                continue
+            desired_keys.append(self._entry_key(date=date, time_range=time_range, facility=facility))
+            desired_details.append(
+                {
+                    "date": date,
+                    "time_range": time_range,
+                    "facility": facility,
+                }
             )
-            for entry in target_entries
-            if entry.get("date") and entry.get("time_range")
-        }
+        desired_key_set = set(desired_keys)
         unique_slots = {}
         matched_keys = set()
+        matched_details = []
         weekly_summaries = []
         stopped_reason = "max_weeks_reached"
 
@@ -100,13 +111,30 @@ class LotteryEntrySlotCollector:
             slots = self.collect_slots(driver, target_weekdays=target_weekdays)
             for slot in slots:
                 unique_slots[self._slot_identity(slot)] = slot
-                if self._slot_matches_keys(slot, desired_keys):
-                    matched_keys.add(
-                        self._entry_key(
-                            date=slot.date,
-                            time_range=slot.time_range,
-                            facility=self._slot_facility_label(slot),
-                        )
+                for target_entry in target_entries:
+                    if not isinstance(target_entry, dict):
+                        continue
+                    if not self._slot_matches_target_entry(slot, target_entry):
+                        continue
+                    target_key = self._entry_key(
+                        date=str(target_entry.get("date", "")).strip(),
+                        time_range=str(target_entry.get("time_range", "")).strip(),
+                        facility=str(target_entry.get("facility", "")).strip(),
+                    )
+                    matched_keys.add(target_key)
+                    matched_details.append(
+                        {
+                            "date": slot.date,
+                            "time_range": slot.time_range,
+                            "facility": self._slot_facility_label(slot),
+                            "park_name": slot.park_name,
+                            "facility_name": slot.facility_name,
+                            "target": {
+                                "date": str(target_entry.get("date", "")).strip(),
+                                "time_range": str(target_entry.get("time_range", "")).strip(),
+                                "facility": str(target_entry.get("facility", "")).strip(),
+                            },
+                        }
                     )
 
             weekly_summaries.append(
@@ -115,12 +143,28 @@ class LotteryEntrySlotCollector:
                     "slot_count": len(slots),
                     "dates": sorted({slot.date for slot in slots if slot.date}),
                     "matched_target_count": len(matched_keys),
+                    "desired_keys": desired_details,
+                    "matched_keys": [
+                        {"date": d[0], "time_range": d[1], "facility": d[2]}
+                        for d in sorted(matched_keys)
+                    ],
+                    "matched_target_details": matched_details[-len(slots):] if matched_details else [],
                 }
             )
             self._save_week_debug(driver, week_index + 1)
 
-            if desired_keys and desired_keys.issubset(matched_keys):
+            if desired_key_set and desired_key_set.issubset(matched_keys):
                 stopped_reason = "all_targets_found"
+                self.logger.info(
+                    "week search early stop: desired_keys=%s matched_keys=%s matched_target_detail=%s stopped_reason=%s",
+                    json.dumps(desired_details, ensure_ascii=False),
+                    json.dumps([
+                        {"date": d[0], "time_range": d[1], "facility": d[2]}
+                        for d in sorted(matched_keys)
+                    ], ensure_ascii=False),
+                    json.dumps(matched_details, ensure_ascii=False),
+                    stopped_reason,
+                )
                 break
 
             if week_index + 1 >= max(1, int(max_weeks or 8)):
@@ -138,7 +182,7 @@ class LotteryEntrySlotCollector:
             "weeks_explored": len(weekly_summaries),
             "max_weeks": max(1, int(max_weeks or 8)),
             "matched_target_count": len(matched_keys),
-            "target_count": len(desired_keys),
+            "target_count": len(desired_key_set),
             "stopped_reason": stopped_reason,
         }
 
@@ -251,19 +295,28 @@ class LotteryEntrySlotCollector:
             str(facility).strip(),
         )
 
-    def _slot_matches_keys(self, slot, desired_keys):
-        if not desired_keys:
+    def _slot_matches_target_entry(self, slot, target_entry):
+        date = str(target_entry.get("date", "")).strip()
+        time_range = str(target_entry.get("time_range", "")).strip()
+        facility = str(target_entry.get("facility", "")).strip()
+        if not date or not time_range:
             return False
-        slot_label = self._slot_facility_label(slot)
-        exact_key = self._entry_key(slot.date, slot.time_range, slot_label)
-        if exact_key in desired_keys:
+        if slot.date != date or slot.time_range != time_range:
+            return False
+        if not facility:
             return True
-        fallback_keys = {
-            self._entry_key(slot.date, slot.time_range, ""),
-            self._entry_key(slot.date, slot.time_range, slot.park_name),
-            self._entry_key(slot.date, slot.time_range, slot.facility_name),
-        }
-        return any(key in desired_keys for key in fallback_keys)
+        slot_label = self._slot_facility_label(slot)
+        park_name = str(getattr(slot, "park_name", "") or "").strip()
+        facility_name = str(getattr(slot, "facility_name", "") or "").strip()
+        return (
+            facility == slot_label
+            or facility in slot_label
+            or slot_label in facility
+            or (park_name and facility == park_name)
+            or (facility_name and facility == facility_name)
+            or (park_name and park_name in facility)
+            or (facility_name and facility_name in facility)
+        )
 
     def _save_week_debug(self, driver, week_index):
         save_html = getattr(self.navigation_service, "save_debug_html", None)

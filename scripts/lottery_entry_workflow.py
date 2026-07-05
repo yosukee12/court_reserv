@@ -152,6 +152,7 @@ def main() -> int:
         slot_collector=LotteryEntrySlotCollector(
             navigation_service=navigation_service,
             browser_session=browser_session,
+            logger=logger,
         ),
         logger=logger,
     )
