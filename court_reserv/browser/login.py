@@ -41,14 +41,26 @@ class LoginService:
         driver.get(self.top_url)
         try:
             if not self._wait_for_top_page_ready(driver):
-                self.last_login_error = "login_page_not_ready"
-                self.last_login_state = self.inspect_page_state(driver)
-                self.logger.warning(
-                    "Login page not ready for user %s: %s",
-                    user_id,
-                    self.last_login_state,
-                )
-                return False
+                state = self.inspect_page_state(driver)
+                if self._should_retry_login_page(state):
+                    if not self._retry_login_page_until_ready(driver, user_id):
+                        self.last_login_error = "login_page_not_ready"
+                        self.last_login_state = self.inspect_page_state(driver)
+                        self.logger.warning(
+                            "Login page not ready for user %s: %s",
+                            user_id,
+                            self.last_login_state,
+                        )
+                        return False
+                else:
+                    self.last_login_error = "login_page_not_ready"
+                    self.last_login_state = state
+                    self.logger.warning(
+                        "Login page not ready for user %s: %s",
+                        user_id,
+                        state,
+                    )
+                    return False
             before_state = self.inspect_page_state(driver)
             self.last_login_state = {"before_login": before_state}
 
@@ -146,6 +158,71 @@ class LoginService:
                 pass
             self.last_login_error = "unexpected_login_alert"
             return False
+
+    def _should_retry_login_page(self, state):
+        title = state.get("title", "")
+        url = state.get("url", "")
+        has_login_form = bool(state.get("has_login_form", False))
+        has_user_id = bool(state.get("has_userId", False))
+        has_password = bool(state.get("has_password", False))
+        return (
+            title == "施設予約システムからのお知らせ"
+            or (
+                "/web/index.jsp" in url
+                and not has_login_form
+                and not has_user_id
+                and not has_password
+            )
+        )
+
+    def _retry_login_page_until_ready(self, driver, user_id, max_retries=10):
+        for retry_count in range(1, max_retries + 1):
+            state = self.inspect_page_state(driver)
+            self.logger.warning(
+                "login notice page detected retry_count=%s title=%s url=%s",
+                retry_count,
+                state.get("title", ""),
+                state.get("url", ""),
+            )
+            try:
+                if retry_count % 2 == 1:
+                    driver.refresh()
+                else:
+                    driver.get(self._build_login_retry_url(driver))
+            except Exception:
+                try:
+                    driver.get(self._build_login_retry_url(driver))
+                except Exception:
+                    pass
+            self.sleep_func(1.5)
+            if self._wait_for_top_page_ready(driver):
+                ready_state = self.inspect_page_state(driver)
+                self.logger.info(
+                    "final login page ready retry_count=%s title=%s url=%s",
+                    retry_count,
+                    ready_state.get("title", ""),
+                    ready_state.get("url", ""),
+                )
+                return True
+        final_state = self.inspect_page_state(driver)
+        self.logger.warning(
+            "final login page failed retry_count=%s title=%s url=%s",
+            max_retries,
+            final_state.get("title", ""),
+            final_state.get("url", ""),
+        )
+        return False
+
+    def _build_login_retry_url(self, driver):
+        candidate = getattr(driver, "current_url", "") or self.top_url or ""
+        for source in (candidate, self.top_url or ""):
+            if not source:
+                continue
+            if "rsvWTransUserLoginAction.do" in source:
+                return source
+            if "/web/index.jsp" in source:
+                return source.split("/web/index.jsp", 1)[0] + "/web/rsvWTransUserLoginAction.do"
+        return self.top_url
 
     def _submit_login(self, driver, password_el):
         try:
