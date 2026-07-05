@@ -3,6 +3,7 @@
 
 import json
 import re
+import random
 import time
 from datetime import datetime
 
@@ -40,6 +41,22 @@ class LotteryService:
         self.output_id_dict = output_id_dict
         self.sleep_func = sleep_func
         self._last_slot_select_info = {}
+        self.human_sleep_enabled = False
+        self.human_sleep_min = 0.5
+        self.human_sleep_max = 1.0
+
+    def _human_sleep(self, fixed=None):
+        if fixed is not None:
+            delay = fixed
+        else:
+            if not getattr(self, "human_sleep_enabled", False):
+                return
+            minimum = float(getattr(self, "human_sleep_min", 0.5) or 0.5)
+            maximum = float(getattr(self, "human_sleep_max", 1.0) or 1.0)
+            if maximum < minimum:
+                minimum, maximum = maximum, minimum
+            delay = random.uniform(minimum, maximum)
+        self.sleep_func(delay)
 
     def _parse_slot_components(self, slot_text):
         parts = str(slot_text or "").split()
@@ -938,6 +955,7 @@ class LotteryService:
                 self.logger.info("waiting_manual_preconfirm_submit")
                 self._prompt_manual_preconfirm_submit(driver)
                 self.logger.info("manual_preconfirm_submit_confirmed")
+                self._human_sleep(fixed=0.3)
                 go_to_confirm = {
                     "success": False,
                     "method": "manual_click",
@@ -977,11 +995,12 @@ class LotteryService:
                 except Exception:
                     pass
             else:
+                self._human_sleep(fixed=0.3)
                 go_to_confirm = self.navigation_service.go_to_temp_apply(driver)
-                confirm_reached = self._wait_for_confirmation_page(
-                    driver,
-                    wait_alert_seconds=wait_alert_seconds,
-                )
+            confirm_reached = self._wait_for_confirmation_page(
+                driver,
+                wait_alert_seconds=wait_alert_seconds,
+            )
             summary["go_to_confirm"] = go_to_confirm or {}
             pre_click = (go_to_confirm or {}).get("pre_click", {})
             btn_meta = pre_click.get("btn_go") or {}
@@ -1065,11 +1084,12 @@ class LotteryService:
                 prefix_base=prefix_base,
             ):
                 return summary
+            self._human_sleep(fixed=0.3)
             self._restore_apply_selection(driver, apply_no)
             selected_apply = self._get_selected_apply_state(driver)
             summary["confirm_page"]["selected_apply_value"] = selected_apply.get("value")
             summary["confirm_page"]["selected_apply_text"] = selected_apply.get("text")
-            self.sleep_func(0.2)
+            self._human_sleep(fixed=0.3)
             submission_result = self._submit_with_recovery(
                 driver,
                 sel_val=apply_no,
@@ -1326,6 +1346,7 @@ class LotteryService:
             self._prompt_manual_final_submit(driver)
             self.logger.info("manual_final_submit_confirmed")
         else:
+            self._human_sleep(fixed=0.3)
             self._trigger_final_apply(driver)
 
         accepted = self._accept_submission_alerts(driver, result, timeout=max(wait_alert_seconds, 60))
@@ -1435,6 +1456,7 @@ class LotteryService:
                 result["recaptcha_response_length_before_retry"] = result.get(
                     "recaptcha_response_length", 0
                 )
+                self._human_sleep(fixed=0.3)
                 self._trigger_final_apply(driver)
                 result["final_apply_retried_after_recaptcha"] = True
                 if self._accept_submission_alerts(

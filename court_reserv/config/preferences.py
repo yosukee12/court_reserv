@@ -20,6 +20,11 @@ def _parse_scalar(value: str):
     text = _strip_quotes(value)
     if text.lower() in {"true", "false"}:
         return text.lower() == "true"
+    try:
+        if "." in text:
+            return float(text)
+    except Exception:
+        pass
     if text.isdigit():
         return int(text)
     return text
@@ -208,6 +213,28 @@ def load_reservation_preference(path: str | Path) -> ReservationPreference:
     if not isinstance(manual_preconfirm_submit, bool):
         manual_preconfirm_submit = bool(manual_preconfirm_submit)
 
+    reuse_browser_session = lottery_data.get("reuse_browser_session", False)
+    if not isinstance(reuse_browser_session, bool):
+        reuse_browser_session = bool(reuse_browser_session)
+
+    human_sleep_enabled = lottery_data.get("human_sleep_enabled", False)
+    if not isinstance(human_sleep_enabled, bool):
+        human_sleep_enabled = bool(human_sleep_enabled)
+
+    human_sleep_min = lottery_data.get("human_sleep_min", 0.5)
+    if not isinstance(human_sleep_min, (int, float)):
+        try:
+            human_sleep_min = float(human_sleep_min)
+        except Exception:
+            human_sleep_min = 0.5
+
+    human_sleep_max = lottery_data.get("human_sleep_max", 1.0)
+    if not isinstance(human_sleep_max, (int, float)):
+        try:
+            human_sleep_max = float(human_sleep_max)
+        except Exception:
+            human_sleep_max = 1.0
+
     default_entries = lottery_data.get("default_entries", [])
     if not isinstance(default_entries, list):
         default_entries = []
@@ -242,6 +269,10 @@ def load_reservation_preference(path: str | Path) -> ReservationPreference:
         lottery_dry_run=dry_run,
         lottery_manual_final_submit=manual_final_submit,
         lottery_manual_preconfirm_submit=manual_preconfirm_submit,
+        lottery_reuse_browser_session=reuse_browser_session,
+        lottery_human_sleep_enabled=human_sleep_enabled,
+        lottery_human_sleep_min=float(human_sleep_min),
+        lottery_human_sleep_max=float(human_sleep_max),
     )
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import time
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +30,22 @@ class NavigationService:
         self.sleep_func = sleep_func
         self.logger = logger or logging.getLogger(__name__)
         self.get_debug_output_dir = get_debug_output_dir
+        self.human_sleep_enabled = False
+        self.human_sleep_min = 0.5
+        self.human_sleep_max = 1.0
+
+    def _human_sleep(self, fixed=None):
+        if fixed is not None:
+            delay = fixed
+        else:
+            if not getattr(self, "human_sleep_enabled", False):
+                return
+            minimum = float(getattr(self, "human_sleep_min", 0.5) or 0.5)
+            maximum = float(getattr(self, "human_sleep_max", 1.0) or 1.0)
+            if maximum < minimum:
+                minimum, maximum = maximum, minimum
+            delay = random.uniform(minimum, maximum)
+        self.sleep_func(delay)
 
     def execute_script(self, driver, script, *args):
         return driver.execute_script(script, *args)
@@ -41,6 +58,128 @@ class NavigationService:
 
     def logout(self, driver):
         return self.do_action(driver, "gRsvWTransUserAttestationEndAction")
+
+    def inspect_top_page_state(self, driver):
+        try:
+            state = self.execute_script(
+                driver,
+                """
+                const loginButton = document.getElementById('btn-login');
+                const logoutButton = Array.from(document.querySelectorAll('a,button,input[type="button"],input[type="submit"]'))
+                  .find((el) => {
+                    const text = (el.textContent || el.value || '').trim();
+                    const onclick = el.getAttribute('onclick') || '';
+                    return text.indexOf('ログアウト') >= 0 || onclick.indexOf('gRsvWTransUserAttestationEndAction') >= 0;
+                  });
+                const displayNo = document.querySelector('input[name="displayNo"]');
+                return {
+                  readyState: document.readyState || "",
+                  title: document.title || "",
+                  current_url: window.location.href,
+                  has_form1: !!document.form1,
+                  has_doAction: typeof doAction === "function",
+                  display_no: displayNo ? (displayNo.value || "") : "",
+                  has_login_button: !!loginButton,
+                  login_button_text: loginButton ? (loginButton.textContent || "").trim() : "",
+                  login_button_onclick: loginButton ? (loginButton.getAttribute("onclick") || "") : "",
+                  has_logout_button: !!logoutButton,
+                };
+                """,
+            )
+            return state if isinstance(state, dict) else {}
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    def wait_until_top_page_ready(self, driver, timeout=10):
+        try:
+            self.wait_factory(driver, timeout).until(
+                lambda d: self.execute_script(
+                    d,
+                    """
+                    const loginButton = document.getElementById('btn-login');
+                    const logoutButton = Array.from(document.querySelectorAll('a,button,input[type="button"],input[type="submit"]'))
+                      .some((el) => {
+                        const text = (el.textContent || el.value || '').trim();
+                        const onclick = el.getAttribute('onclick') || '';
+                        return text.indexOf('ログアウト') >= 0 || onclick.indexOf('gRsvWTransUserAttestationEndAction') >= 0;
+                      });
+                    const displayNo = document.querySelector('input[name="displayNo"]');
+                    return (
+                      document.readyState === "complete" &&
+                      !!loginButton &&
+                      (loginButton.textContent || '').indexOf('ログイン') >= 0 &&
+                      (loginButton.getAttribute('onclick') || '').indexOf('gRsvWTransUserLoginAction') >= 0 &&
+                      !!displayNo &&
+                      (displayNo.value || '') === 'pawab2000' &&
+                      !logoutButton
+                    );
+                    """,
+                )
+            )
+            return True
+        except Exception:
+            return False
+
+    def go_to_user_login_from_top(self, driver):
+        state = self.inspect_top_page_state(driver)
+        if not self.wait_until_top_page_ready(driver):
+            return {
+                "success": False,
+                "method": "",
+                "state": state,
+                "error": "top_page_not_ready",
+            }
+        methods = ("text_click", "javascript_action")
+        result = {
+            "success": False,
+            "method": "",
+            "state": state,
+            "error": None,
+        }
+        try:
+            element = driver.find_element(By.ID, "btn-login")
+            self.execute_script(
+                driver,
+                "arguments[0].scrollIntoView({block: 'center'});",
+                element,
+            )
+            element.click()
+            result["method"] = "text_click"
+            if self._wait_for_login_page_from_top(driver):
+                result["success"] = True
+                result["state"] = self.inspect_top_page_state(driver)
+                return result
+        except Exception:
+            pass
+        try:
+            self.execute_script(driver, "javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
+            result["method"] = "javascript_action"
+            if self._wait_for_login_page_from_top(driver):
+                result["success"] = True
+                result["state"] = self.inspect_top_page_state(driver)
+                return result
+        except Exception as exc:
+            result["error"] = str(exc)
+        result["state"] = self.inspect_top_page_state(driver)
+        return result
+
+    def _wait_for_login_page_from_top(self, driver, timeout=10):
+        try:
+            self.wait_factory(driver, timeout).until(
+                lambda d: self.execute_script(
+                    d,
+                    """
+                    return (
+                      document.readyState === "complete" &&
+                      !!document.querySelector('input[name="userId"]') &&
+                      !!document.querySelector('input[name="password"]')
+                    );
+                    """,
+                )
+            )
+            return True
+        except Exception:
+            return False
 
     def go_to_lottery_entry(self, driver):
         if not self.wait_until_navigation_ready(driver):
@@ -88,6 +227,7 @@ class NavigationService:
             json.dumps(initial_settle, ensure_ascii=False),
         )
         self._log_select_diagnostics(driver, "before_lottery_park_selection")
+        self._human_sleep()
         Select(driver.find_element(By.ID, "bname")).select_by_value(park_value)
         after_bname_hidden = self._inspect_lottery_hidden_selection_state(driver)
         self.logger.info(
@@ -95,6 +235,7 @@ class NavigationService:
             json.dumps(after_bname_hidden, ensure_ascii=False),
         )
         self.execute_script(driver, "changeBname(document.form1);")
+        self.sleep_func(1.0)
         retry_count = 0
         resolved_court_value = court_value
         selected_by = ""
@@ -104,61 +245,75 @@ class NavigationService:
         js_info = {}
         hidden_state = {}
         final_iname_options = []
-        while retry_count <= 3:
+        while retry_count < 3:
             try:
                 resolved_court_value = self._wait_for_lottery_iname_options(
                     driver,
                     option_value=court_value,
                     option_text=court_text,
                 )
-            except TimeoutException as exc:
-                debug_context = self._build_select_debug_context(driver)
-                debug_html_path = self._save_debug_html(
-                    driver,
-                    prefix="lottery_tennis_park_selection_failure",
-                )
-                debug_context["debug_html_path"] = (
-                    str(debug_html_path) if debug_html_path else None
-                )
-                debug_context["retry_count"] = retry_count
-                message = (
-                    "Lottery tennis park selection timed out while waiting for "
-                    f"iname option value '{court_value}'. Context: "
-                    f"{json.dumps(debug_context, ensure_ascii=False)}"
-                )
-                self.logger.error(message)
-                raise TimeoutException(message) from exc
-            final_iname_options = self._describe_select(driver, "iname").get("options", [])
-            self.logger.info(
-                "after changeBname iname options=%s retry_count=%s",
-                json.dumps(final_iname_options, ensure_ascii=False),
-                retry_count,
-            )
-            iname_element = driver.find_element(By.ID, "iname")
-            selected_by = self._select_lottery_court_option(
-                iname_element,
-                preferred_value=resolved_court_value,
-                preferred_text=court_text,
-            )
-            selected_state = self._describe_select(driver, "iname")
-            selected_option = self._get_selected_option_state(driver, "iname")
-            onchange_value = iname_element.get_attribute("onchange")
-            js_info = self._inspect_lottery_iname_javascript(driver)
-            hidden_state = self._inspect_lottery_hidden_selection_state(driver)
-            self.logger.info(
-                "after iname select hidden values=%s retry_count=%s",
-                json.dumps(hidden_state, ensure_ascii=False),
-                retry_count,
-            )
-            if self._lottery_hidden_selection_matches(
-                hidden_state,
-                park_value=park_value,
-                court_value=resolved_court_value,
-            ):
                 break
+            except TimeoutException as exc:
+                retry_count += 1
+                self.logger.warning(
+                    "Lottery tennis park iname options wait timed out retry_count=%s option_value=%s option_text=%s",
+                    retry_count,
+                    court_value,
+                    court_text,
+                )
+                if retry_count >= 3:
+                    debug_context = self._build_select_debug_context(driver)
+                    debug_html_path = self._save_debug_html(
+                        driver,
+                        prefix="lottery_tennis_park_selection_failure",
+                    )
+                    debug_context["debug_html_path"] = (
+                        str(debug_html_path) if debug_html_path else None
+                    )
+                    debug_context["retry_count"] = retry_count
+                    message = (
+                        "Lottery tennis park selection timed out while waiting for "
+                        f"iname option value '{court_value}'. Context: "
+                        f"{json.dumps(debug_context, ensure_ascii=False)}"
+                    )
+                    self.logger.error(message)
+                    raise TimeoutException(message) from exc
+                self.execute_script(driver, "changeBname(document.form1);")
+                self.sleep_func(1.0)
+                continue
+
+        final_iname_options = self._describe_select(driver, "iname").get("options", [])
+        self.logger.info(
+            "after changeBname iname options=%s retry_count=%s",
+            json.dumps(final_iname_options, ensure_ascii=False),
+            retry_count,
+        )
+        self._human_sleep()
+        iname_element = driver.find_element(By.ID, "iname")
+        selected_by = self._select_lottery_court_option(
+            iname_element,
+            preferred_value=resolved_court_value,
+            preferred_text=court_text,
+        )
+        selected_state = self._describe_select(driver, "iname")
+        selected_option = self._get_selected_option_state(driver, "iname")
+        onchange_value = iname_element.get_attribute("onchange")
+        js_info = self._inspect_lottery_iname_javascript(driver)
+        hidden_state = self._inspect_lottery_hidden_selection_state(driver)
+        self.logger.info(
+            "after iname select hidden values=%s retry_count=%s",
+            json.dumps(hidden_state, ensure_ascii=False),
+            retry_count,
+        )
+        if not self._lottery_hidden_selection_matches(
+            hidden_state,
+            park_value=park_value,
+            court_value=resolved_court_value,
+        ):
             self.sleep_func(0.5)
             self.execute_script(driver, "changeBname(document.form1);")
-            retry_count += 1
+            self.sleep_func(1.0)
+            hidden_state = self._inspect_lottery_hidden_selection_state(driver)
         if not self._lottery_hidden_selection_matches(
             hidden_state,
             park_value=park_value,
@@ -641,11 +796,14 @@ class NavigationService:
                         "arguments[0].scrollIntoView({block: 'center'});",
                         button,
                     )
+                    self._human_sleep(fixed=0.3)
                     button.click()
                 elif method == "javascript_click":
                     button = driver.find_element(By.ID, "next-week")
+                    self._human_sleep(fixed=0.3)
                     self.execute_script(driver, "arguments[0].click();", button)
                 else:
+                    self._human_sleep(fixed=0.3)
                     self.execute_script(
                         driver,
                         "doNextWeek(document.form1, gLotWTransLotInstSrchVacantAjaxAction);",
@@ -701,11 +859,14 @@ class NavigationService:
                         "arguments[0].scrollIntoView({block: 'center'});",
                         button,
                     )
+                    self._human_sleep(fixed=0.3)
                     button.click()
                 elif method == "javascript_click":
                     button = driver.find_element(By.ID, "last-week")
+                    self._human_sleep(fixed=0.3)
                     self.execute_script(driver, "arguments[0].click();", button)
                 else:
+                    self._human_sleep(fixed=0.3)
                     self.execute_script(
                         driver,
                         "doPrevWeek(document.form1, gLotWTransLotInstSrchVacantAjaxAction);",

@@ -2,6 +2,7 @@
 """Login helpers for legacy Selenium flows."""
 
 import time
+import random
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -33,12 +34,33 @@ class LoginService:
         self.sleep_func = sleep_func
         self.last_login_state = {}
         self.last_login_error = None
+        self.human_sleep_enabled = False
+        self.human_sleep_min = 0.5
+        self.human_sleep_max = 1.0
+
+    def _human_sleep(self, fixed=None):
+        if fixed is not None:
+            delay = fixed
+        else:
+            if not getattr(self, "human_sleep_enabled", False):
+                return
+            minimum = float(getattr(self, "human_sleep_min", 0.5) or 0.5)
+            maximum = float(getattr(self, "human_sleep_max", 1.0) or 1.0)
+            if maximum < minimum:
+                minimum, maximum = maximum, minimum
+            delay = random.uniform(minimum, maximum)
+        self.sleep_func(delay)
 
     def login(self, driver, user_id, password):
         """Run the legacy login flow and return True on success."""
         self.last_login_state = {}
         self.last_login_error = None
-        driver.get(self.top_url)
+        initial_state = self.inspect_page_state(driver)
+        if not (
+            initial_state.get("has_login_form")
+            or (initial_state.get("has_userId") and initial_state.get("has_password"))
+        ):
+            driver.get(self.top_url)
         try:
             if not self._wait_for_top_page_ready(driver):
                 state = self.inspect_page_state(driver)
@@ -110,7 +132,7 @@ class LoginService:
                 pass
             user_el.send_keys(user_id)
             password_el.send_keys(password)
-            self.sleep_func(0.5)
+            self._human_sleep()
             self._submit_login(driver, password_el)
             self.logger.info("Login submitted: %s", self.inspect_page_state(driver))
 
@@ -314,6 +336,71 @@ class LoginService:
             ):
                 return True
             self.sleep_func(0.5)
+        return False
+
+    def _should_retry_login_page(self, state):
+        title = str(state.get("title", "") or "")
+        url = str(state.get("url", "") or "")
+        has_login_form = bool(state.get("has_login_form", False))
+        has_user_id = bool(state.get("has_userId", False))
+        has_password = bool(state.get("has_password", False))
+        return (
+            title == "施設予約システムからのお知らせ"
+            or (
+                "/web/index.jsp" in url
+                and not has_login_form
+                and not has_user_id
+                and not has_password
+            )
+        )
+
+    def _build_login_retry_url(self, driver):
+        candidate = getattr(driver, "current_url", "") or self.top_url or ""
+        for source in (candidate, self.top_url or ""):
+            if not source:
+                continue
+            if "rsvWTransUserLoginAction.do" in source:
+                return source
+            if "/web/index.jsp" in source:
+                return source.split("/web/index.jsp", 1)[0] + "/web/rsvWTransUserLoginAction.do"
+        return self.top_url
+
+    def _retry_login_page_until_ready(self, driver, max_retries=10):
+        for retry_count in range(1, max_retries + 1):
+            state = self.inspect_page_state(driver)
+            self.logger.warning(
+                "login notice page detected retry_count=%s title=%s url=%s",
+                retry_count,
+                state.get("title", ""),
+                state.get("url", ""),
+            )
+            try:
+                if retry_count % 2 == 1:
+                    driver.refresh()
+                else:
+                    driver.get(self._build_login_retry_url(driver))
+            except Exception:
+                try:
+                    driver.get(self._build_login_retry_url(driver))
+                except Exception:
+                    pass
+            self.sleep_func(1.5)
+            if self._wait_for_top_page_ready(driver):
+                ready_state = self.inspect_page_state(driver)
+                self.logger.info(
+                    "final login page ready retry_count=%s title=%s url=%s",
+                    retry_count,
+                    ready_state.get("title", ""),
+                    ready_state.get("url", ""),
+                )
+                return True
+        final_state = self.inspect_page_state(driver)
+        self.logger.warning(
+            "final login page failed retry_count=%s title=%s url=%s",
+            max_retries,
+            final_state.get("title", ""),
+            final_state.get("url", ""),
+        )
         return False
 
     def _wait_for_login_form(self, driver, timeout=5):

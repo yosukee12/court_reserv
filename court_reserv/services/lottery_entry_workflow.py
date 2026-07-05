@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 from pathlib import Path
 
 from court_reserv.config import get_default_credentials
@@ -37,6 +38,88 @@ class LotteryEntryWorkflowService:
         self.slot_adapter = slot_adapter
         self.slot_ranking_service = slot_ranking_service
         self.logger = logger or logging.getLogger(__name__)
+        self.human_sleep_enabled = False
+        self.human_sleep_min = 0.5
+        self.human_sleep_max = 1.0
+
+    def _apply_sleep_policy(self, preference):
+        enabled = bool(getattr(preference, "lottery_human_sleep_enabled", False))
+        minimum = float(getattr(preference, "lottery_human_sleep_min", 0.5) or 0.5)
+        maximum = float(getattr(preference, "lottery_human_sleep_max", 1.0) or 1.0)
+        if maximum < minimum:
+            minimum, maximum = maximum, minimum
+        self.human_sleep_enabled = enabled
+        self.human_sleep_min = minimum
+        self.human_sleep_max = maximum
+        for service in (self.login_service, self.navigation_service, self.lottery_service):
+            setattr(service, "human_sleep_enabled", enabled)
+            setattr(service, "human_sleep_min", minimum)
+            setattr(service, "human_sleep_max", maximum)
+
+    def _human_sleep(self, fixed=None):
+        if fixed is not None:
+            delay = fixed
+        else:
+            if not self.human_sleep_enabled:
+                return
+            delay = random.uniform(self.human_sleep_min, self.human_sleep_max)
+        self.logger.debug("human_sleep delay=%s", delay)
+        self.navigation_service.sleep_func(delay)
+
+    def _build_login_retry_url(self, driver):
+        top_url = getattr(self.login_service, "top_url", "") or ""
+        candidate = getattr(driver, "current_url", "") or top_url
+        if "rsvWTransUserLoginAction.do" in candidate:
+            return candidate
+        if "/web/index.jsp" in candidate:
+            return candidate.split("/web/index.jsp", 1)[0] + "/web/rsvWTransUserLoginAction.do"
+        return top_url
+
+    def _logout_and_verify_login_page(self, driver):
+        result = {
+            "executed": False,
+            "success": False,
+            "top_page_ready": False,
+            "top_page_state": {},
+            "login_page_ready": False,
+            "login_page_state": {},
+            "error": None,
+        }
+        try:
+            self.navigation_service.logout(driver)
+            result["executed"] = True
+            self._human_sleep(fixed=0.5)
+            result["top_page_ready"] = self.navigation_service.wait_until_top_page_ready(
+                driver,
+                timeout=10,
+            )
+            result["top_page_state"] = self.navigation_service.inspect_top_page_state(driver)
+            self.logger.info(
+                "logout top page ready=%s title=%s url=%s",
+                result["top_page_ready"],
+                result["top_page_state"].get("title", ""),
+                result["top_page_state"].get("current_url", ""),
+            )
+            if not result["top_page_ready"]:
+                return result
+            login_transition = self.navigation_service.go_to_user_login_from_top(driver)
+            result["login_page_ready"] = bool(login_transition.get("success"))
+            result["login_page_state"] = self.login_service.inspect_page_state(driver)
+            self.logger.info(
+                "logout login page ready=%s title=%s url=%s method=%s",
+                result["login_page_ready"],
+                result["login_page_state"].get("title", ""),
+                result["login_page_state"].get("url", ""),
+                login_transition.get("method", ""),
+            )
+            result["success"] = bool(result["login_page_ready"])
+            return result
+        except Exception as exc:
+            result["error"] = str(exc)
+            return result
+
+    def _prepare_next_account(self):
+        self._human_sleep(fixed=0.5)
 
     def resolve_accounts(self, id_csv=None, account_id=None):
         """Resolve accounts by issue-defined priority."""
@@ -114,7 +197,10 @@ class LotteryEntryWorkflowService:
         output_dir=None,
     ):
         del source_csv, search_dirs
+        self._apply_sleep_policy(preference)
         accounts = self.resolve_accounts(id_csv=id_csv, account_id=account_id)
+        reuse_browser_session = bool(getattr(preference, "lottery_reuse_browser_session", False))
+        shared_driver = self.browser_session.create_driver() if reuse_browser_session and accounts else None
         target_weekdays = (
             preference.lottery_target_weekdays
             if preference.lottery_target_weekdays
@@ -126,8 +212,10 @@ class LotteryEntryWorkflowService:
             "accounts": [],
             "session_strategy": "created_per_account",
         }
+        browser_reused_from_previous_account = False
 
         for index, account in enumerate(accounts):
+            session_reused = bool(reuse_browser_session and browser_reused_from_previous_account)
             account_result = self._run_account_with_retry(
                 account=account,
                 preference=preference,
@@ -135,10 +223,30 @@ class LotteryEntryWorkflowService:
                 display_result_callback=display_result_callback,
                 confirm_submit_callback=confirm_submit_callback,
                 account_index=index + 1,
+                session_reused=session_reused,
+                driver=shared_driver if reuse_browser_session else None,
+                reuse_browser_session=reuse_browser_session,
             )
             result["accounts"].append(account_result)
             if output_dir is not None:
                 self.save_result(result, output_dir)
+            if reuse_browser_session:
+                if index < len(accounts) - 1:
+                    logout_result = self._logout_and_verify_login_page(shared_driver)
+                    account_result["logout_result"] = logout_result
+                    if not logout_result.get("success"):
+                        self.browser_session.safe_quit(shared_driver)
+                        shared_driver = self.browser_session.create_driver()
+                        browser_reused_from_previous_account = False
+                        account_result["session_reused"] = False
+                    else:
+                        account_result["session_reused"] = session_reused
+                        browser_reused_from_previous_account = True
+                        self._prepare_next_account()
+                else:
+                    self.browser_session.safe_quit(shared_driver)
+                    shared_driver = None
+                    browser_reused_from_previous_account = False
         return result
 
     def _run_account_with_retry(
@@ -149,6 +257,9 @@ class LotteryEntryWorkflowService:
         display_result_callback,
         confirm_submit_callback,
         account_index,
+        session_reused=False,
+        driver=None,
+        reuse_browser_session=False,
     ):
         retryable = {
             "login_or_navigation_not_ready",
@@ -160,33 +271,44 @@ class LotteryEntryWorkflowService:
             "lottery_park_selection_not_ready",
         }
         last_result = None
+        shared_driver = driver
         for attempt in range(2):
-            driver = self.browser_session.create_driver()
-            session_reused = False
-            session_mode = "created_per_account"
+            if not reuse_browser_session or shared_driver is None:
+                current_driver = self.browser_session.create_driver()
+                created_here = True
+            else:
+                current_driver = shared_driver
+                created_here = False
+            attempt_session_reused = bool(session_reused and attempt == 0 and not created_here)
+            session_mode = (
+                "reused_browser_session"
+                if session_reused and reuse_browser_session
+                else "created_per_account"
+            )
             masked_user_id = self.mask_user_id(account["user_id"])
             self.logger.info(
                 "Starting account index=%s user=%s session_mode=%s session_reused=%s",
                 account_index,
                 masked_user_id,
                 session_mode,
-                session_reused,
+                attempt_session_reused,
             )
             try:
                 last_result = self._run_for_account(
-                    driver=driver,
+                    driver=current_driver,
                     account=account,
                     preference=preference,
                     max_select=max_select,
                     display_result_callback=display_result_callback,
                     confirm_submit_callback=confirm_submit_callback,
-                    session_reused=session_reused,
                     session_mode=session_mode,
                     account_index=account_index,
                     attempt_index=attempt + 1,
+                    session_reused=attempt_session_reused,
                 )
             finally:
-                self.browser_session.safe_quit(driver)
+                if not reuse_browser_session or not shared_driver is current_driver:
+                    self.browser_session.safe_quit(current_driver)
             if not last_result or last_result.get("status") not in retryable or attempt >= 1:
                 return last_result
             if last_result.get("retry_reason") == "login_alert":
@@ -196,6 +318,7 @@ class LotteryEntryWorkflowService:
                 account_index,
                 last_result.get("retry_reason"),
             )
+            shared_driver = current_driver
         return last_result
 
     def _run_for_account(

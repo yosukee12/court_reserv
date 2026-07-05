@@ -53,14 +53,14 @@ def _build_entry_confirm_message(account_result, entry_result):
     if account_result.get("account_label"):
         account_part = f"{account_part} ({account_result.get('account_label')})"
     lines = [
-        "Submit this lottery entry?",
-        f"Account: {account_part}",
-        f"Apply No: {entry_result.get('apply_label', '')} ({entry_result.get('apply_no', '')})",
-        f"Date: {slot.get('date', '')}",
-        f"Weekday: {slot.get('weekday', '')}",
-        f"Time: {slot.get('time_range', '')}",
-        f"Facility: {slot.get('facility', '')}",
-        f"Current entry count: {slot.get('current_entry_count', '')}",
+        "今回申し込む枠:",
+        f"ID / アカウント: {account_part}",
+        f"申込み: {entry_result.get('apply_label', '')}",
+        f"日付: {slot.get('date', '')}",
+        f"曜日: {slot.get('weekday', '')}",
+        f"時間帯: {slot.get('time_range', '')}",
+        f"施設名: {slot.get('facility', '')}",
+        f"現在申込数: {slot.get('current_entry_count', '')}",
     ]
     return "\n".join(lines)
 
@@ -70,9 +70,9 @@ def _confirm_submission(account_result, entry_result):
     if not slot:
         return ""
     print(_build_entry_confirm_message(account_result, entry_result))
-    print("Type 'yes' to submit this entry. Any other input will cancel.")
+    print("送信する場合は yes を入力してください。")
     try:
-        return input("Submit? [yes/no]: ").strip()
+        return input("送信しますか？ [yes/no]: ").strip()
     except EOFError:
         return ""
 

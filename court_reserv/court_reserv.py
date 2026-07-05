@@ -531,9 +531,6 @@ class Court_Reserv(tk.Frame):
             f"現在申込数: {slot.get('current_entry_count', '')}",
             "",
         ]
-        if entry_result.get("apply_no"):
-            message_lines.append(f"apply: {entry_result.get('apply_no')}")
-            message_lines.append("")
         message_lines.append("送信しますか？")
         answer = self._threadsafe_ask_yes_no(
             "抽選申込み確認",
@@ -719,6 +716,9 @@ class Court_Reserv(tk.Frame):
         manual_preconfirm_submit_var = tk.BooleanVar(
             value=bool(lottery_data.get("manual_preconfirm_submit", False))
         )
+        reuse_browser_session_var = tk.BooleanVar(
+            value=bool(lottery_data.get("reuse_browser_session", False))
+        )
 
         file_frame = ttk.LabelFrame(dialog, text="ファイル", padding=12)
         file_frame.grid(row=0, column=0, sticky=tk.EW, padx=12, pady=(12, 8))
@@ -795,6 +795,11 @@ class Court_Reserv(tk.Frame):
             text="申込みボタン前を手動にする（切り分け用）",
             variable=manual_preconfirm_submit_var,
         ).grid(row=3, column=0, columnspan=4, sticky=tk.W, pady=(8, 0))
+        ttk.Checkbutton(
+            lottery_frame,
+            text="ブラウザ再利用（アカウント間）",
+            variable=reuse_browser_session_var,
+        ).grid(row=4, column=0, columnspan=4, sticky=tk.W, pady=(8, 0))
 
         default_tree = self._build_entry_tree(dialog, "共通申込み枠", row=2)
         overrides_tree = self._build_override_tree(dialog, row=3)
@@ -861,6 +866,7 @@ class Court_Reserv(tk.Frame):
             lottery["dry_run"] = bool(dry_run_var.get())
             lottery["manual_final_submit"] = bool(manual_final_submit_var.get())
             lottery["manual_preconfirm_submit"] = bool(manual_preconfirm_submit_var.get())
+            lottery["reuse_browser_session"] = bool(reuse_browser_session_var.get())
             lottery["default_entries"] = [
                 {
                     "facility": values[0],
