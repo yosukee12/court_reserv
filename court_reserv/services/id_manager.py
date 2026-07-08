@@ -68,17 +68,16 @@ class IdManagerService:
         with open(output_file_path, "w") as f:
             writer = csv.writer(f)
             for key, values in id_dict.items():
-                if key != "" and values[2] != "":
-                    if len(values) == 3:
-                        writer.writerow([key, values[0], values[1], values[2]])
-                    elif len(values) == 4:
-                        writer.writerow([key, values[0], values[1], values[2], values[3]])
-                    elif len(values) == 5:
-                        writer.writerow(
-                            [key, values[0], values[1], values[2], values[3], values[4]]
-                        )
-                    else:
-                        continue
+                if key == "" or len(values) < 3 or values[2] == "":
+                    continue
+                if len(values) == 3:
+                    writer.writerow([key, values[0], values[1], values[2]])
+                elif len(values) == 4:
+                    writer.writerow([key, values[0], values[1], values[2], values[3]])
+                elif len(values) == 5:
+                    writer.writerow(
+                        [key, values[0], values[1], values[2], values[3], values[4]]
+                    )
 
     def check_account_validity(self, id_dict):
         """

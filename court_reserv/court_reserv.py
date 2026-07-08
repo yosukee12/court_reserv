@@ -24,6 +24,7 @@ try:
         AvailabilityService,
         IdManagerService,
         LotteryEntrySlotCollector,
+        LotteryApplicationCheckWorkflowService,
         LotteryEntryWorkflowService,
         LotteryResultWorkflowService,
         LotteryService,
@@ -45,6 +46,7 @@ except Exception:
         AvailabilityService,
         IdManagerService,
         LotteryEntrySlotCollector,
+        LotteryApplicationCheckWorkflowService,
         LotteryEntryWorkflowService,
         LotteryResultWorkflowService,
         LotteryService,
@@ -194,6 +196,17 @@ class Court_Reserv(tk.Frame):
             ),
             logger=self.logger,
         )
+        self.lottery_application_check_workflow_service = (
+            LotteryApplicationCheckWorkflowService(
+                config=config,
+                browser_session=self.browser_session,
+                login_service=self.login_service,
+                navigation_service=self.navigation_service,
+                id_manager_service=self.id_manager_service,
+                logger=self.logger,
+                sleep_func=time.sleep,
+            )
+        )
         self.lottery_result_workflow_service = LotteryResultWorkflowService(
             config=config,
             browser_session=self.browser_session,
@@ -214,6 +227,7 @@ class Court_Reserv(tk.Frame):
 
         self.id_csv_var = tk.StringVar()
         self.preferences_var = tk.StringVar()
+        self.lottery_application_check_output_dir_var = tk.StringVar()
         self.driver = None
 
         self._load_last_settings()
@@ -263,9 +277,21 @@ class Court_Reserv(tk.Frame):
             command=self.browse_preferences,
         ).grid(row=2, column=2, sticky=tk.EW, pady=4)
 
+        ttk.Label(container, text="抽選申込み状況CSV出力先").grid(
+            row=3, column=0, sticky=tk.W, pady=4
+        )
+        ttk.Entry(container, textvariable=self.lottery_application_check_output_dir_var).grid(
+            row=3, column=1, sticky=tk.EW, padx=(8, 8), pady=4
+        )
+        ttk.Button(
+            container,
+            text="参照",
+            command=self.browse_lottery_application_check_output_dir,
+        ).grid(row=3, column=2, sticky=tk.EW, pady=4)
+
         action_frame = ttk.LabelFrame(container, text="抽選", padding=12)
-        action_frame.grid(row=3, column=0, columnspan=3, sticky=tk.EW, pady=(16, 16))
-        for index in range(4):
+        action_frame.grid(row=4, column=0, columnspan=3, sticky=tk.EW, pady=(16, 16))
+        for index in range(5):
             action_frame.columnconfigure(index, weight=1)
 
         self.button_auto_lottery = ttk.Button(
@@ -275,32 +301,39 @@ class Court_Reserv(tk.Frame):
         )
         self.button_auto_lottery.grid(row=0, column=0, sticky=tk.EW, padx=(0, 8))
 
+        self.button_lottery_check = ttk.Button(
+            action_frame,
+            text="抽選申込み状況確認",
+            command=self.run_lottery_application_check_workflow,
+        )
+        self.button_lottery_check.grid(row=0, column=1, sticky=tk.EW, padx=8)
+
         self.button_lottery_result = ttk.Button(
             action_frame,
             text="抽選結果確認",
             command=self.run_lottery_result_workflow,
         )
-        self.button_lottery_result.grid(row=0, column=1, sticky=tk.EW, padx=8)
+        self.button_lottery_result.grid(row=0, column=2, sticky=tk.EW, padx=8)
 
         self.button_reservation_confirm = ttk.Button(
             action_frame,
             text="予約確定補助",
             command=self.run_reservation_confirmation_workflow,
         )
-        self.button_reservation_confirm.grid(row=0, column=2, sticky=tk.EW, padx=8)
+        self.button_reservation_confirm.grid(row=0, column=3, sticky=tk.EW, padx=8)
 
         self.button_settings = ttk.Button(
             action_frame,
             text="設定",
             command=self.open_settings_dialog,
         )
-        self.button_settings.grid(row=0, column=3, sticky=tk.EW, padx=(8, 0))
+        self.button_settings.grid(row=0, column=4, sticky=tk.EW, padx=(8, 0))
 
         log_frame = ttk.LabelFrame(container, text="ログ", padding=8)
-        log_frame.grid(row=4, column=0, columnspan=3, sticky=tk.NSEW)
+        log_frame.grid(row=5, column=0, columnspan=3, sticky=tk.NSEW)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-        container.rowconfigure(4, weight=1)
+        container.rowconfigure(5, weight=1)
 
         self.log_text = scrolledtext.ScrolledText(
             log_frame,
@@ -368,6 +401,11 @@ class Court_Reserv(tk.Frame):
         if path:
             self.preferences_var.set(path)
 
+    def browse_lottery_application_check_output_dir(self):
+        path = filedialog.askdirectory(title="抽選申込み状況CSV 出力先フォルダを選択")
+        if path:
+            self.lottery_application_check_output_dir_var.set(path)
+
     def _run_in_background(self, label, func):
         if self.worker_thread and self.worker_thread.is_alive():
             self._threadsafe_show_info("実行中", "他のWorkflowが実行中です。完了を待ってください。")
@@ -398,6 +436,7 @@ class Court_Reserv(tk.Frame):
     def _set_action_state(self, state):
         for button in (
             self.button_auto_lottery,
+            self.button_lottery_check,
             self.button_lottery_result,
             self.button_reservation_confirm,
             self.button_settings,
@@ -466,6 +505,9 @@ class Court_Reserv(tk.Frame):
                 fallback=str(self.repo_root / "config" / "preferences.example.yaml"),
             )
         )
+        self.lottery_application_check_output_dir_var.set(
+            local.get("GUI", "last_lottery_application_check_output_dir", fallback="")
+        )
         self.window_geometry = local.get(
             "GUI",
             "last_window_geometry",
@@ -480,6 +522,11 @@ class Court_Reserv(tk.Frame):
             local.add_section("GUI")
         local.set("GUI", "last_id_csv", self.id_csv_var.get().strip())
         local.set("GUI", "last_preferences", self.preferences_var.get().strip())
+        local.set(
+            "GUI",
+            "last_lottery_application_check_output_dir",
+            self.lottery_application_check_output_dir_var.get().strip(),
+        )
         local.set("GUI", "last_window_geometry", self.master.geometry())
         with self.local_config_path.open("w", encoding="utf-8") as fh:
             local.write(fh)
@@ -490,6 +537,12 @@ class Court_Reserv(tk.Frame):
 
     def run_lottery_entry_workflow(self):
         self._run_in_background("抽選申込みワークフロー", self._execute_lottery_entry_workflow)
+
+    def run_lottery_application_check_workflow(self):
+        self._run_in_background(
+            "抽選申込み状況確認ワークフロー",
+            self._execute_lottery_application_check_workflow,
+        )
 
     def _execute_lottery_entry_workflow(self):
         preference = self._load_current_preference()
@@ -507,6 +560,28 @@ class Court_Reserv(tk.Frame):
             get_output_base_path() / "lottery_automation",
         )
         self._log_message(f"ワークフロー結果を保存しました: {result_path}")
+
+    def _execute_lottery_application_check_workflow(self):
+        id_csv = self._resolve_id_csv_for_execution()
+        result = self.lottery_application_check_workflow_service.run(
+            id_csv=id_csv,
+        )
+        self.lottery_application_check_workflow_service.print_result(result)
+        output_dir = self._resolve_lottery_application_check_output_dir(id_csv=id_csv)
+        csv_path = self.lottery_application_check_workflow_service.save_result(
+            result,
+            output_dir=output_dir,
+            id_csv=id_csv,
+        )
+        self._log_message(f"申込み状況CSVを保存しました: {csv_path}")
+
+    def _resolve_lottery_application_check_output_dir(self, id_csv=None):
+        path = self.lottery_application_check_output_dir_var.get().strip()
+        if path:
+            return Path(path)
+        if id_csv:
+            return Path(id_csv).resolve().parent
+        return get_output_base_path() / "lottery_automation"
 
     def _confirm_submission_from_gui(self, result, entry_result):
         preference = self._load_current_preference()
