@@ -29,6 +29,7 @@ try:
         LotteryResultWorkflowService,
         LotteryService,
         ReservationConfirmationWorkflowService,
+        ReservationStatusWorkflowService,
         ReservationService,
     )
 except Exception:
@@ -51,10 +52,12 @@ except Exception:
         LotteryResultWorkflowService,
         LotteryService,
         ReservationConfirmationWorkflowService,
+        ReservationStatusWorkflowService,
         ReservationService,
     )
 
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 
@@ -224,6 +227,14 @@ class Court_Reserv(tk.Frame):
                 logger=self.logger,
             )
         )
+        self.reservation_status_workflow_service = ReservationStatusWorkflowService(
+            reservation_service=self.reservation_service,
+            login_service=self.login_service,
+            browser_session=self.browser_session,
+            navigation_service=self.navigation_service,
+            logger=self.logger,
+            sleep_func=time.sleep,
+        )
 
         self.id_csv_var = tk.StringVar()
         self.preferences_var = tk.StringVar()
@@ -232,28 +243,171 @@ class Court_Reserv(tk.Frame):
 
         self._load_last_settings()
         self.master.geometry(self.window_geometry)
+        self._configure_tennis_styles()
         self.create_widgets()
         self._install_log_handler()
         self.master.protocol("WM_DELETE_WINDOW", self.on_close)
         self._log_message("GUI initialized.")
+        self._bring_window_to_front_on_startup()
+
+    def _bring_window_to_front_on_startup(self):
+        """Raise the GUI once at startup without keeping it always-on-top."""
+        try:
+            previous_topmost = self.master.attributes("-topmost")
+            self.master.attributes("-topmost", True)
+            self.master.lift()
+            self.master.focus_force()
+            self.master.after(
+                500,
+                lambda: self.master.attributes("-topmost", previous_topmost),
+            )
+        except tk.TclError:
+            pass
+
+    def _configure_tennis_styles(self):
+        """Apply a tennis-court inspired visual theme to the GUI only."""
+        style = ttk.Style(self.master)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        surface = "#F3F8F4"
+        navy = "#123047"
+        court_green = "#16804A"
+        court_green_dark = "#0E6239"
+        pale_green = "#E4F2E8"
+        text = "#173042"
+        ui_font = "Helvetica Neue"
+
+        for font_name, size, weight in (
+            ("TkDefaultFont", 12, "normal"),
+            ("TkTextFont", 12, "normal"),
+            ("TkMenuFont", 11, "normal"),
+            ("TkHeadingFont", 12, "bold"),
+            ("TkFixedFont", 11, "normal"),
+        ):
+            font = tkfont.nametofont(font_name)
+            font.configure(family=ui_font, size=size, weight=weight)
+
+        self.master.configure(background=surface)
+        style.configure("App.TFrame", background=surface)
+        style.configure("Header.TFrame", background=navy)
+        style.configure(
+            "HeaderTitle.TLabel",
+            background=navy,
+            foreground="white",
+            font=(ui_font, 18, "bold"),
+        )
+        style.configure(
+            "HeaderSub.TLabel",
+            background=navy,
+            foreground="#B9DCC6",
+            font=(ui_font, 10, "bold"),
+        )
+        style.configure(
+            "Form.TLabel",
+            background=surface,
+            foreground=text,
+            font=(ui_font, 11, "bold"),
+        )
+        style.configure(
+            "Menu.TLabelframe",
+            background=surface,
+            bordercolor="#B8D4C1",
+            relief="solid",
+        )
+        style.configure(
+            "Menu.TLabelframe.Label",
+            background=surface,
+            foreground=navy,
+            font=(ui_font, 12, "bold"),
+        )
+        style.configure(
+            "Period.TLabelframe",
+            background=pale_green,
+            bordercolor="#9BC8A8",
+            relief="solid",
+        )
+        style.configure(
+            "Period.TLabelframe.Label",
+            background=pale_green,
+            foreground=court_green_dark,
+            font=(ui_font, 11, "bold"),
+        )
+        style.configure(
+            "Settings.TLabelframe",
+            background=surface,
+            bordercolor="#CCD7DE",
+            relief="solid",
+        )
+        style.configure(
+            "Settings.TLabelframe.Label",
+            background=surface,
+            foreground="#52636E",
+            font=(ui_font, 11, "bold"),
+        )
+        style.configure(
+            "Primary.TButton",
+            background=court_green,
+            foreground="white",
+            borderwidth=0,
+            padding=(10, 6),
+            font=(ui_font, 11, "bold"),
+        )
+        style.map(
+            "Primary.TButton",
+            background=[("active", court_green_dark), ("disabled", "#A8C9B2")],
+            foreground=[("disabled", "#F5F5F5")],
+        )
+        style.configure(
+            "Secondary.TButton",
+            background="#DDEEE2",
+            foreground=court_green_dark,
+            borderwidth=1,
+            padding=(10, 6),
+            font=(ui_font, 11, "bold"),
+        )
+        style.map(
+            "Secondary.TButton",
+            background=[("active", "#C7E3CF"), ("disabled", "#E5EAE7")],
+            foreground=[("disabled", "#83918A")],
+        )
+        style.configure(
+            "Settings.TButton",
+            background="#E7EDF0",
+            foreground=navy,
+            borderwidth=0,
+            padding=(10, 5),
+            font=(ui_font, 11, "bold"),
+        )
+        style.map("Settings.TButton", background=[("active", "#D7E1E6")])
+        style.configure("File.TButton", padding=(10, 5), font=(ui_font, 11, "bold"))
 
     def create_widgets(self):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
 
-        container = ttk.Frame(self, padding=16)
+        container = ttk.Frame(self, padding=10, style="App.TFrame")
         container.grid(row=0, column=0, sticky=tk.NSEW)
         container.columnconfigure(1, weight=1)
-        container.rowconfigure(5, weight=1)
+        container.rowconfigure(6, weight=1)
 
-        title = ttk.Label(
-            container,
+        header = ttk.Frame(container, padding=(12, 8), style="Header.TFrame")
+        header.grid(row=0, column=0, columnspan=3, sticky=tk.EW, pady=(0, 16))
+        header.columnconfigure(0, weight=1)
+        ttk.Label(
+            header,
             text="東京都テニスコート予約",
-            font=("", 16, "bold"),
-        )
-        title.grid(row=0, column=0, columnspan=3, sticky=tk.W, pady=(0, 12))
+            style="HeaderTitle.TLabel",
+        ).grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(
+            header,
+            text="TENNIS COURT RESERVATION  /  WORKFLOW CONSOLE",
+            style="HeaderSub.TLabel",
+        ).grid(row=1, column=0, sticky=tk.W, pady=(4, 0))
 
-        ttk.Label(container, text="ID CSVファイル").grid(
+        ttk.Label(container, text="ID CSVファイル", style="Form.TLabel").grid(
             row=1, column=0, sticky=tk.W, pady=4
         )
         ttk.Entry(container, textvariable=self.id_csv_var).grid(
@@ -263,9 +417,10 @@ class Court_Reserv(tk.Frame):
             container,
             text="参照",
             command=self.browse_id_csv,
+            style="File.TButton",
         ).grid(row=1, column=2, sticky=tk.EW, pady=4)
 
-        ttk.Label(container, text="設定YAML").grid(
+        ttk.Label(container, text="設定YAML", style="Form.TLabel").grid(
             row=2, column=0, sticky=tk.W, pady=4
         )
         ttk.Entry(container, textvariable=self.preferences_var).grid(
@@ -275,9 +430,14 @@ class Court_Reserv(tk.Frame):
             container,
             text="参照",
             command=self.browse_preferences,
+            style="File.TButton",
         ).grid(row=2, column=2, sticky=tk.EW, pady=4)
 
-        ttk.Label(container, text="抽選申込み状況CSV出力先").grid(
+        ttk.Label(
+            container,
+            text="抽選申込み状況CSV出力先",
+            style="Form.TLabel",
+        ).grid(
             row=3, column=0, sticky=tk.W, pady=4
         )
         ttk.Entry(container, textvariable=self.lottery_application_check_output_dir_var).grid(
@@ -287,66 +447,111 @@ class Court_Reserv(tk.Frame):
             container,
             text="参照",
             command=self.browse_lottery_application_check_output_dir,
+            style="File.TButton",
         ).grid(row=3, column=2, sticky=tk.EW, pady=4)
 
-        action_frame = ttk.LabelFrame(container, text="抽選", padding=12)
+        action_frame = ttk.LabelFrame(
+            container, text="操作メニュー", padding=12, style="Menu.TLabelframe"
+        )
         action_frame.grid(row=4, column=0, columnspan=3, sticky=tk.EW, pady=(16, 16))
-        for index in range(5):
+        for index in range(4):
             action_frame.columnconfigure(index, weight=1)
 
-        self.button_auto_lottery = ttk.Button(
-            action_frame,
-            text="抽選申込み自動化",
-            command=self.run_lottery_entry_workflow,
+        entry_frame = ttk.LabelFrame(
+            action_frame, text="毎月1〜10日", padding=8, style="Period.TLabelframe"
         )
-        self.button_auto_lottery.grid(row=0, column=0, sticky=tk.EW, padx=(0, 8))
+        entry_frame.grid(row=0, column=0, columnspan=2, sticky=tk.EW, padx=(0, 8))
+        entry_frame.columnconfigure(0, weight=1)
+        entry_frame.columnconfigure(1, weight=1)
+
+        result_frame = ttk.LabelFrame(
+            action_frame, text="毎月14〜20日", padding=8, style="Period.TLabelframe"
+        )
+        result_frame.grid(row=0, column=2, columnspan=2, sticky=tk.EW, padx=(8, 0))
+        result_frame.columnconfigure(0, weight=1)
+        result_frame.columnconfigure(1, weight=1)
+
+        other_frame = ttk.LabelFrame(
+            action_frame, text="その他", padding=8, style="Period.TLabelframe"
+        )
+        other_frame.grid(row=1, column=0, columnspan=4, sticky=tk.EW, pady=(12, 0))
+        other_frame.columnconfigure(0, weight=1)
+
+        self.button_auto_lottery = ttk.Button(
+            entry_frame,
+            text="抽選申込み(自動)",
+            command=self.run_lottery_entry_workflow,
+            style="Primary.TButton",
+        )
+        self.button_auto_lottery.grid(row=0, column=0, sticky=tk.EW, padx=(0, 4))
 
         self.button_lottery_check = ttk.Button(
-            action_frame,
+            entry_frame,
             text="抽選申込み状況確認",
             command=self.run_lottery_application_check_workflow,
+            style="Secondary.TButton",
         )
-        self.button_lottery_check.grid(row=0, column=1, sticky=tk.EW, padx=8)
+        self.button_lottery_check.grid(row=0, column=1, sticky=tk.EW, padx=(4, 0))
 
         self.button_lottery_result = ttk.Button(
-            action_frame,
+            result_frame,
             text="抽選結果確認",
             command=self.run_lottery_result_workflow,
+            style="Secondary.TButton",
         )
-        self.button_lottery_result.grid(row=0, column=2, sticky=tk.EW, padx=8)
+        self.button_lottery_result.grid(row=0, column=0, sticky=tk.EW, padx=(0, 4))
 
         self.button_reservation_confirm = ttk.Button(
-            action_frame,
-            text="予約確定補助",
+            result_frame,
+            text="予約確定",
             command=self.run_reservation_confirmation_workflow,
+            style="Primary.TButton",
         )
-        self.button_reservation_confirm.grid(row=0, column=3, sticky=tk.EW, padx=8)
+        self.button_reservation_confirm.grid(row=0, column=1, sticky=tk.EW, padx=(4, 0))
 
+        self.button_reservation_status = ttk.Button(
+            other_frame,
+            text="予約状況確認(キャンセル)",
+            command=self.run_reservation_status_workflow,
+            style="Secondary.TButton",
+        )
+        self.button_reservation_status.grid(row=0, column=0, sticky=tk.EW)
+
+        settings_frame = ttk.LabelFrame(
+            container, text="設定", padding=8, style="Settings.TLabelframe"
+        )
+        settings_frame.grid(row=5, column=0, columnspan=3, sticky=tk.EW, pady=(0, 16))
         self.button_settings = ttk.Button(
-            action_frame,
-            text="設定",
+            settings_frame,
+            text="設定を開く",
             command=self.open_settings_dialog,
+            style="Settings.TButton",
         )
-        self.button_settings.grid(row=0, column=4, sticky=tk.EW, padx=(8, 0))
+        self.button_settings.grid(row=0, column=0, sticky=tk.W)
 
-        log_frame = ttk.LabelFrame(container, text="ログ", padding=8)
-        log_frame.grid(row=5, column=0, columnspan=3, sticky=tk.NSEW)
+        log_frame = ttk.LabelFrame(container, text="実行ログ", padding=8, style="Settings.TLabelframe")
+        log_frame.grid(row=6, column=0, columnspan=3, sticky=tk.NSEW)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-        container.rowconfigure(5, weight=1)
+        container.rowconfigure(6, weight=1)
 
         self.log_text = scrolledtext.ScrolledText(
             log_frame,
             wrap=tk.WORD,
-            height=24,
+            height=8,
             state=tk.DISABLED,
+            background="#102C3E",
+            foreground="#E6F3E9",
+            insertbackground="#E6F3E9",
+            relief=tk.FLAT,
+            font=("Menlo", 10),
         )
         self.log_text.grid(row=0, column=0, columnspan=2, sticky=tk.NSEW)
 
-        ttk.Button(log_frame, text="ログ保存", command=self.save_log).grid(
+        ttk.Button(log_frame, text="ログ保存", command=self.save_log, style="Settings.TButton").grid(
             row=1, column=0, sticky=tk.W, pady=(8, 0)
         )
-        ttk.Button(log_frame, text="ログクリア", command=self.clear_log).grid(
+        ttk.Button(log_frame, text="ログクリア", command=self.clear_log, style="Settings.TButton").grid(
             row=1, column=1, sticky=tk.E, pady=(8, 0)
         )
 
@@ -439,6 +644,7 @@ class Court_Reserv(tk.Frame):
             self.button_lottery_check,
             self.button_lottery_result,
             self.button_reservation_confirm,
+            self.button_reservation_status,
             self.button_settings,
         ):
             button.configure(state=state)
@@ -464,10 +670,26 @@ class Court_Reserv(tk.Frame):
         return box.get("result")
 
     def _threadsafe_show_info(self, title, message):
-        return self._call_on_main_thread(messagebox.showinfo, title, message)
+        return self._call_on_main_thread(self._show_info_on_top, title, message)
 
     def _threadsafe_ask_yes_no(self, title, message):
-        return self._call_on_main_thread(messagebox.askyesno, title, message)
+        return self._call_on_main_thread(self._ask_yes_no_on_top, title, message)
+
+    def _run_messagebox_on_top(self, messagebox_func, title, message):
+        previous_topmost = self.master.attributes("-topmost")
+        try:
+            self.master.attributes("-topmost", True)
+            self.master.lift()
+            self.master.focus_force()
+            return messagebox_func(title, message, parent=self.master)
+        finally:
+            self.master.attributes("-topmost", previous_topmost)
+
+    def _show_info_on_top(self, title, message):
+        return self._run_messagebox_on_top(messagebox.showinfo, title, message)
+
+    def _ask_yes_no_on_top(self, title, message):
+        return self._run_messagebox_on_top(messagebox.askyesno, title, message)
 
     def _ensure_preferences_path(self):
         path = self.preferences_var.get().strip()
@@ -670,6 +892,89 @@ class Court_Reserv(tk.Frame):
             self._execute_reservation_confirmation_workflow,
         )
 
+    def run_reservation_status_workflow(self):
+        self._run_in_background(
+            "予約状況確認ワークフロー",
+            self._execute_reservation_status_workflow,
+        )
+
+    def _execute_reservation_status_workflow(self):
+        input_csv_path = self._resolve_id_csv_for_execution()
+        accounts = self.id_manager_service.load_accounts(input_csv_path)
+        account_list = [
+            {"user_id": user_id, "password": values[2], "account_label": values[0]}
+            for user_id, values in accounts.items()
+            if len(values) >= 3 and values[2]
+        ]
+        result = self.reservation_status_workflow_service.run(
+            account_list,
+            decision_callback=self._reservation_status_decision,
+        )
+        for user_id, status in result.items():
+            self._log_message(
+                f"ID:{self._mask_user_id_for_log(user_id)} 予約状況確認: {status.get('status')}"
+            )
+            if status.get("cancel_decision") == "manual_cancel":
+                account_label = status.get("account_label", "")
+                label_text = f" 氏名:{account_label}" if account_label else ""
+                self._log_message(
+                    f"キャンセル対象 ID:{self._mask_user_id_for_log(user_id)}{label_text}"
+                )
+        verification = self.reservation_status_workflow_service.verify_accounts(
+            account_list
+        )
+        no_reservation_ids = []
+        for user_id, status in result.items():
+            verification_status = verification.get(user_id, {})
+            status["verification"] = verification_status
+            if (
+                verification_status.get("status") in {"verified", "no_reservation_or_alert"}
+                and verification_status.get("reservation_count") == 0
+            ):
+                no_reservation_ids.append(user_id)
+            elif status.get("cancel_decision") == "manual_cancel":
+                self._log_message(
+                    f"キャンセル未確認 ID:{self._mask_user_id_for_log(user_id)} "
+                    f"予約件数:{verification_status.get('reservation_count', '不明')}"
+                )
+        output_path = Path(input_csv_path).with_name(
+            f"reservation_check_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv"
+        )
+        self.reservation_status_workflow_service.save_remaining_accounts_csv(
+            input_csv_path,
+            no_reservation_ids,
+            output_path,
+        )
+        self._log_message(
+            f"予約確認後CSVを出力しました: {output_path}（予約なし確認済み {len(no_reservation_ids)} 件）"
+        )
+
+    def _reservation_status_decision(self, user_id, result):
+        account_label = result.get("account_label", "")
+        name_text = f"氏名: {account_label}\n" if account_label else ""
+        should_cancel = self._threadsafe_ask_yes_no(
+            "キャンセル確認",
+            f"ID:{self._mask_user_id_for_log(user_id)}\n"
+            f"{name_text}"
+            "の予約確認画面を開きました。\n\n"
+            "キャンセルする場合は「Yes」を押した後、ブラウザ画面の\n"
+            "「キャンセル」ボタンをユーザー自身で押してください。\n\n"
+            "キャンセルしない場合は「No」を押して次のIDへ進みます。",
+        )
+        if should_cancel:
+            self._threadsafe_show_info(
+                "手動キャンセル",
+                "ブラウザ画面の「キャンセル」ボタンを押してください。\n"
+                "キャンセル操作が完了したら、このポップアップの「OK」を押して\n"
+                "次のIDへ進みます。",
+            )
+        return should_cancel
+
+    @staticmethod
+    def _mask_user_id_for_log(user_id):
+        value = str(user_id)
+        return value[:2] + "****" + value[-2:] if len(value) > 4 else "****"
+
     def _execute_reservation_confirmation_workflow(self):
         result = self.reservation_confirmation_workflow_service.run(
             id_csv=self._resolve_id_csv_for_execution(),
@@ -767,13 +1072,15 @@ class Court_Reserv(tk.Frame):
 
         dialog = tk.Toplevel(self.master)
         dialog.title("設定")
-        dialog.geometry("920x760")
-        dialog.minsize(900, 720)
+        screen_height = dialog.winfo_screenheight()
+        dialog_height = min(680, max(600, screen_height - 120))
+        dialog.geometry(f"920x{dialog_height}")
+        dialog.minsize(900, 600)
         dialog.transient(self.master)
         dialog.grab_set()
         dialog.columnconfigure(0, weight=1)
         dialog.rowconfigure(3, weight=1)
-        dialog.rowconfigure(4, weight=1)
+        dialog.rowconfigure(4, weight=0)
 
         id_csv_var = tk.StringVar(value=self.id_csv_var.get())
         preferences_var = tk.StringVar(value=str(pref_path))
@@ -995,7 +1302,7 @@ class Court_Reserv(tk.Frame):
             frame,
             columns=("facility", "date", "time_range"),
             show="headings",
-            height=5,
+            height=3,
         )
         for key, label, width in (
             ("facility", "施設名", 240),
@@ -1018,7 +1325,7 @@ class Court_Reserv(tk.Frame):
             frame,
             columns=("account_id", "facility", "date", "time_range"),
             show="headings",
-            height=6,
+            height=4,
         )
         for key, label, width in (
             ("account_id", "ID", 120),

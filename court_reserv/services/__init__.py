@@ -18,6 +18,7 @@ from .lottery_entry_workflow import LotteryEntryWorkflowService
 from .lottery_application_check_workflow import LotteryApplicationCheckWorkflowService
 from .lottery_result_workflow import LotteryResultWorkflowService
 from .reservation_confirmation_workflow import ReservationConfirmationWorkflowService
+from .reservation_status_workflow import ReservationStatusWorkflowService
 from .lottery_entry_slot_collector import LotteryEntrySlotCollector
 
 __all__ = [
@@ -34,5 +35,6 @@ __all__ = [
     "LotteryApplicationCheckWorkflowService",
     "LotteryResultWorkflowService",
     "ReservationConfirmationWorkflowService",
+    "ReservationStatusWorkflowService",
     "LotteryEntrySlotCollector",
 ]
