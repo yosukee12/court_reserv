@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import csv
+import datetime
 import json
 import logging
 import os
@@ -148,6 +149,10 @@ class LotteryResultWorkflowService:
                 return summary
 
             self.navigation_service.go_to_lottery_result_list(driver)
+            if not self._wait_for_lottery_result_page(driver):
+                summary["status"] = "result_page_wait_failed"
+                summary["error"] = "lottery_result_page_not_ready"
+                return summary
             html = driver.page_source
             rows = self.parse_result_rows(
                 html,
@@ -170,6 +175,33 @@ class LotteryResultWorkflowService:
                 pass
 
         return summary
+
+    def _wait_for_lottery_result_page(self, driver, timeout=5):
+        """Wait until the lottery result page DOM is ready to be parsed."""
+        get_wait = getattr(self.browser_session, "get_wait", None)
+        if get_wait is None:
+            return True
+
+        try:
+            get_wait(driver, timeout).until(
+                lambda current_driver: self._is_lottery_result_page_ready(
+                    current_driver
+                )
+            )
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _is_lottery_result_page_ready(driver):
+        soup = bs(driver.page_source, "html.parser")
+        display_no = soup.select_one('input[name="displayNo"]')
+        result_section = soup.select_one("#lottery-result")
+        return bool(
+            display_no
+            and display_no.get("value") == "plwfa2000"
+            and result_section
+        )
 
     def parse_result_rows(self, html, masked_user_id, account_label=""):
         """Parse lottery result rows from the current result page."""
@@ -314,11 +346,13 @@ class LotteryResultWorkflowService:
                 f"facility={row.get('facility')}"
             )
 
-    def save_result(self, result, output_dir):
+    def save_result(self, result, output_dir, id_csv=None):
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         json_path = output_path / "lottery_result_workflow_result.json"
-        csv_path = output_path / "lottery_result_workflow_result.csv"
+        csv_output_path = Path(id_csv).resolve().parent if id_csv else output_path
+        csv_output_path.mkdir(parents=True, exist_ok=True)
+        csv_path = csv_output_path / "lottery_result_workflow_result.csv"
 
         json_path.write_text(
             json.dumps(result, ensure_ascii=False, indent=2),
@@ -343,6 +377,47 @@ class LotteryResultWorkflowService:
                 writer.writerow(row)
 
         return json_path, csv_path
+
+    def save_won_accounts_csv(self, result, id_csv, output_path):
+        """Save the input accounts whose lottery result contains a win."""
+        accounts = self.id_manager_service.load_accounts(id_csv)
+        won_ids = {
+            summary.get("user_id")
+            for summary in result.get("account_summaries", [])
+            if any(row.get("result") == "won" for row in summary.get("results", []))
+        }
+        won_accounts = {
+            user_id: accounts[user_id]
+            for user_id in accounts
+            if user_id in won_ids
+        }
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        self.id_manager_service.save_accounts(won_accounts, output_file)
+        return output_file
+
+    def get_won_account_entries(self, result):
+        entries = []
+        for summary in result.get("account_summaries", []):
+            for row in summary.get("results", []):
+                if row.get("result") != "won":
+                    continue
+                entries.append(
+                    {
+                        "user_id": summary.get("user_id", ""),
+                        "account_label": summary.get("account_label", ""),
+                        "date": row.get("date", ""),
+                        "time_range": row.get("time_range", ""),
+                    }
+                )
+        return entries
+
+    @staticmethod
+    def build_won_accounts_csv_path(id_csv):
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        return Path(id_csv).resolve().with_name(
+            f"lottery_result_won_{timestamp}.csv"
+        )
 
     def mask_user_id(self, user_id):
         text = str(user_id)

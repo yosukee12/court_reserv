@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 from pathlib import Path
@@ -29,15 +30,18 @@ class ReservationConfirmationWorkflowService:
         account_id=None,
         select_entries_callback=None,
         confirm_callback=None,
+        lottery_result=None,
+        decision_callback=None,
     ):
         accounts = self.lottery_result_workflow_service.resolve_accounts(
             id_csv=id_csv,
             account_id=account_id,
         )
-        lottery_result = self.lottery_result_workflow_service.run(
-            id_csv=id_csv,
-            account_id=account_id,
-        )
+        if lottery_result is None:
+            lottery_result = self.lottery_result_workflow_service.run(
+                id_csv=id_csv,
+                account_id=account_id,
+            )
         won_entries = [
             row for row in lottery_result.get("results", []) if row.get("result") == "won"
         ]
@@ -55,18 +59,8 @@ class ReservationConfirmationWorkflowService:
         if not won_entries:
             return result
 
-        if select_entries_callback is None:
-            return result
-
-        selected_indices = select_entries_callback(won_entries)
-        selected_entries = [
-            won_entries[index]
-            for index in selected_indices
-            if 0 <= index < len(won_entries)
-        ]
+        selected_entries = won_entries
         result["selected_entries"] = selected_entries
-        if not selected_entries:
-            return result
 
         validation = self._resolve_selected_accounts(selected_entries, won_entries, accounts)
         if validation["error"]:
@@ -74,17 +68,19 @@ class ReservationConfirmationWorkflowService:
             return result
         result["selected_accounts"] = validation["selected_accounts"]
 
-        if confirm_callback is None:
+        if confirm_callback is None and decision_callback is None:
             return result
 
-        confirmation_response = confirm_callback(result)
-        result["confirmation_response"] = confirmation_response
-        if str(confirmation_response).strip().lower() != "yes":
-            return result
+        if confirm_callback is not None:
+            confirmation_response = confirm_callback(result)
+            result["confirmation_response"] = confirmation_response
+            if str(confirmation_response).strip().lower() != "yes":
+                return result
 
         reservation_result = self.reservation_service.confirm_accounts(
             validation["selected_accounts"],
             login_service=self.login_service,
+            decision_callback=decision_callback,
         )
         result["reservation_result"] = reservation_result
         result["confirmed"] = True
@@ -208,6 +204,37 @@ class ReservationConfirmationWorkflowService:
             encoding="utf-8",
         )
         return json_path
+
+    def save_confirmed_accounts_csv(self, result, id_csv, output_path):
+        """Save only accounts for which reservation confirmation succeeded."""
+        accounts = self.lottery_result_workflow_service.id_manager_service.load_accounts(
+            id_csv
+        )
+        confirmed_ids = {
+            user_id
+            for user_id, reservation in result.get("reservation_result", {}).items()
+            if reservation.get("confirmed")
+        }
+        confirmed_accounts = {
+            user_id: list(accounts[user_id])
+            + list(result["reservation_result"][user_id].get("confirmed", []))
+            for user_id in accounts
+            if user_id in confirmed_ids
+        }
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        self.lottery_result_workflow_service.id_manager_service.save_accounts(
+            confirmed_accounts,
+            output_file,
+        )
+        return output_file
+
+    @staticmethod
+    def build_confirmed_accounts_csv_path(id_csv):
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        return Path(id_csv).resolve().with_name(
+            f"reservation_confirmed_{timestamp}.csv"
+        )
 
     def _account_key(self, masked_account, account_label):
         return f"{masked_account}::{account_label or ''}"

@@ -45,7 +45,7 @@ class ReservationService:
             "javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);",
         )
 
-    def confirm_accounts(self, accounts, login_service=None):
+    def confirm_accounts(self, accounts, login_service=None, decision_callback=None):
         """Confirm reservations for selected accounts using the legacy flow."""
         result_dict = {}
         driver = self.browser_session.create_driver()
@@ -80,43 +80,35 @@ class ReservationService:
                     try:
                         self.navigation_service.go_to_lottery_result_list(driver)
                         self.sleep_func(0.5)
-                        soup = bs(driver.page_source, "html.parser")
-                        found_day_list = [
-                            elem.text
-                            for elem in soup.find_all(
-                                "span", string=re.compile("月.*日(.*)")
-                            )
-                        ]
-                        found_time_list = [
-                            elem.text
-                            for elem in soup.find_all(
-                                string=re.compile("時.*分～.*時.*分")
-                            )
-                        ]
-                        if len(found_day_list) == 1:
-                            self._get_wait(driver, 240).until(
-                                EC.alert_is_present(),
-                                "Timed out waiting for PA creation confirmation popup to appear.",
-                            )
-                            alert = driver.switch_to.alert
-                            alert.accept()
-                            confirmed_label = found_day_list[0] + " " + found_time_list[0]
-                            print("ID:" + user_id + " 確定日→ " + confirmed_label)
-                            result_entry["confirmed"].append(confirmed_label)
-                            self.logger.info(
-                                "ID:%s 予約確定完了→ %s", user_id, confirmed_label
-                            )
-                        elif len(found_day_list) == 2:
-                            for i in range(2):
+                        should_confirm = (
+                            decision_callback(account)
+                            if decision_callback is not None
+                            else True
+                        )
+                        if not should_confirm:
+                            result_entry["status"] = "skipped_by_user"
+                        else:
+                            soup = bs(driver.page_source, "html.parser")
+                            found_day_list = [
+                                elem.text
+                                for elem in soup.find_all(
+                                    "span", string=re.compile("月.*日(.*)")
+                                )
+                            ]
+                            found_time_list = [
+                                elem.text
+                                for elem in soup.find_all(
+                                    string=re.compile("時.*分～.*時.*分")
+                                )
+                            ]
+                            if len(found_day_list) == 1:
                                 self._get_wait(driver, 240).until(
                                     EC.alert_is_present(),
                                     "Timed out waiting for PA creation confirmation popup to appear.",
                                 )
                                 alert = driver.switch_to.alert
                                 alert.accept()
-                                confirmed_label = (
-                                    found_day_list[i] + " " + found_time_list[i]
-                                )
+                                confirmed_label = found_day_list[0] + " " + found_time_list[0]
                                 print("ID:" + user_id + " 確定日→ " + confirmed_label)
                                 result_entry["confirmed"].append(confirmed_label)
                                 self.logger.info(
@@ -124,8 +116,26 @@ class ReservationService:
                                     user_id,
                                     confirmed_label,
                                 )
-                        else:
-                            result_entry["status"] = "no_won_results"
+                            elif len(found_day_list) == 2:
+                                for i in range(2):
+                                    self._get_wait(driver, 240).until(
+                                        EC.alert_is_present(),
+                                        "Timed out waiting for PA creation confirmation popup to appear.",
+                                    )
+                                    alert = driver.switch_to.alert
+                                    alert.accept()
+                                    confirmed_label = (
+                                        found_day_list[i] + " " + found_time_list[i]
+                                    )
+                                    print("ID:" + user_id + " 確定日→ " + confirmed_label)
+                                    result_entry["confirmed"].append(confirmed_label)
+                                    self.logger.info(
+                                        "ID:%s 予約確定完了→ %s",
+                                        user_id,
+                                        confirmed_label,
+                                    )
+                            else:
+                                result_entry["status"] = "no_won_results"
                     except UnexpectedAlertPresentException:
                         print("ID:" + user_id + " 申込みなし")
                         result_entry["status"] = "no_won_results"

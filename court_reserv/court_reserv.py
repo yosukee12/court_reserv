@@ -476,6 +476,7 @@ class Court_Reserv(tk.Frame):
         )
         other_frame.grid(row=1, column=0, columnspan=4, sticky=tk.EW, pady=(12, 0))
         other_frame.columnconfigure(0, weight=1)
+        other_frame.columnconfigure(1, weight=1)
 
         self.button_auto_lottery = ttk.Button(
             entry_frame,
@@ -516,6 +517,16 @@ class Court_Reserv(tk.Frame):
             style="Secondary.TButton",
         )
         self.button_reservation_status.grid(row=0, column=0, sticky=tk.EW)
+
+        self.button_reservation_status_check_only = ttk.Button(
+            other_frame,
+            text="予約状況確認(キャンセルなし)",
+            command=self.run_reservation_status_check_only_workflow,
+            style="Secondary.TButton",
+        )
+        self.button_reservation_status_check_only.grid(
+            row=0, column=1, sticky=tk.EW, padx=(4, 0)
+        )
 
         settings_frame = ttk.LabelFrame(
             container, text="設定", padding=8, style="Settings.TLabelframe"
@@ -874,17 +885,67 @@ class Court_Reserv(tk.Frame):
         self._run_in_background("抽選結果確認ワークフロー", self._execute_lottery_result_workflow)
 
     def _execute_lottery_result_workflow(self):
+        id_csv = self._resolve_id_csv_for_execution()
         result = self.lottery_result_workflow_service.run(
-            id_csv=self._resolve_id_csv_for_execution()
+            id_csv=id_csv
         )
         self.lottery_result_workflow_service.print_result(result)
         output_dir = get_output_base_path() / "lottery_automation"
         json_path, csv_path = self.lottery_result_workflow_service.save_result(
             result,
             output_dir,
+            id_csv=id_csv,
         )
         self._log_message(f"結果JSONを保存しました: {json_path}")
         self._log_message(f"結果CSVを保存しました: {csv_path}")
+
+        won_entries = self.lottery_result_workflow_service.get_won_account_entries(
+            result
+        )
+        if id_csv:
+            won_csv_path = self.lottery_result_workflow_service.build_won_accounts_csv_path(
+                id_csv
+            )
+            self.lottery_result_workflow_service.save_won_accounts_csv(
+                result,
+                id_csv,
+                won_csv_path,
+            )
+            self._log_message(f"当選ID CSVを保存しました: {won_csv_path}")
+        else:
+            won_csv_path = None
+
+        display_lines = [
+            "当選ID一覧:",
+            "",
+        ]
+        if won_entries:
+            display_lines.extend(
+                f"ID:{entry['user_id']} 氏名:{entry['account_label']} "
+                f"日時:{entry['date']} {entry['time_range']}"
+                for entry in won_entries
+            )
+        else:
+            display_lines.append("当選はありません。")
+        display_lines.extend(["", "予約確定へ進みますか？"])
+        proceed = self._threadsafe_ask_yes_no(
+            "予約確定への移行",
+            "\n".join(display_lines),
+        )
+        if not proceed or not won_entries:
+            return
+
+        if not id_csv:
+            self._log_message(
+                "入力CSVが指定されていないため、当選ID CSVは作成せず予約確定へ進みます。"
+            )
+            self._execute_reservation_confirmation_workflow()
+            return
+
+        self._execute_reservation_confirmation_workflow(
+            id_csv=won_csv_path,
+            lottery_result=result,
+        )
 
     def run_reservation_confirmation_workflow(self):
         self._run_in_background(
@@ -895,10 +956,16 @@ class Court_Reserv(tk.Frame):
     def run_reservation_status_workflow(self):
         self._run_in_background(
             "予約状況確認ワークフロー",
-            self._execute_reservation_status_workflow,
+            lambda: self._execute_reservation_status_workflow(allow_cancel=True),
         )
 
-    def _execute_reservation_status_workflow(self):
+    def run_reservation_status_check_only_workflow(self):
+        self._run_in_background(
+            "予約状況確認（キャンセルなし）ワークフロー",
+            lambda: self._execute_reservation_status_workflow(allow_cancel=False),
+        )
+
+    def _execute_reservation_status_workflow(self, allow_cancel=True):
         input_csv_path = self._resolve_id_csv_for_execution()
         accounts = self.id_manager_service.load_accounts(input_csv_path)
         account_list = [
@@ -908,7 +975,7 @@ class Court_Reserv(tk.Frame):
         ]
         result = self.reservation_status_workflow_service.run(
             account_list,
-            decision_callback=self._reservation_status_decision,
+            decision_callback=(self._reservation_status_decision if allow_cancel else None),
         )
         for user_id, status in result.items():
             self._log_message(
@@ -924,9 +991,13 @@ class Court_Reserv(tk.Frame):
             account_list
         )
         no_reservation_ids = []
+        reservation_details = {}
         for user_id, status in result.items():
             verification_status = verification.get(user_id, {})
             status["verification"] = verification_status
+            reservation_details[user_id] = verification_status.get(
+                "reservation_page", {}
+            ).get("reservations", [])
             if (
                 verification_status.get("status") in {"verified", "no_reservation_or_alert"}
                 and verification_status.get("reservation_count") == 0
@@ -944,6 +1015,7 @@ class Court_Reserv(tk.Frame):
             input_csv_path,
             no_reservation_ids,
             output_path,
+            reservation_details=reservation_details,
         )
         self._log_message(
             f"予約確認後CSVを出力しました: {output_path}（予約なし確認済み {len(no_reservation_ids)} 件）"
@@ -975,11 +1047,11 @@ class Court_Reserv(tk.Frame):
         value = str(user_id)
         return value[:2] + "****" + value[-2:] if len(value) > 4 else "****"
 
-    def _execute_reservation_confirmation_workflow(self):
+    def _execute_reservation_confirmation_workflow(self, id_csv=None, lottery_result=None):
         result = self.reservation_confirmation_workflow_service.run(
-            id_csv=self._resolve_id_csv_for_execution(),
-            select_entries_callback=self._select_entries_from_gui,
-            confirm_callback=self._confirm_reservation_from_gui,
+            id_csv=id_csv or self._resolve_id_csv_for_execution(),
+            lottery_result=lottery_result,
+            decision_callback=self._reservation_confirmation_decision,
         )
         self.reservation_confirmation_workflow_service.print_result(result)
         output_dir = get_output_base_path() / "lottery_automation"
@@ -988,73 +1060,26 @@ class Court_Reserv(tk.Frame):
             output_dir,
         )
         self._log_message(f"予約確定補助の結果を保存しました: {json_path}")
-
-    def _select_entries_from_gui(self, won_entries):
-        return self._call_on_main_thread(self._open_entry_selection_dialog, won_entries)
-
-    def _open_entry_selection_dialog(self, won_entries):
-        dialog = tk.Toplevel(self.master)
-        dialog.title("予約確定対象の選択")
-        dialog.geometry("720x360")
-        dialog.transient(self.master)
-        dialog.grab_set()
-        dialog.columnconfigure(0, weight=1)
-        dialog.rowconfigure(0, weight=1)
-
-        tree = ttk.Treeview(
-            dialog,
-            columns=("account", "date", "time", "facility"),
-            show="headings",
-            selectmode="extended",
-        )
-        for key, title, width in (
-            ("account", "アカウント", 120),
-            ("date", "日付", 120),
-            ("time", "時間帯", 120),
-            ("facility", "施設", 280),
-        ):
-            tree.heading(key, text=title)
-            tree.column(key, width=width, anchor=tk.W)
-        for index, row in enumerate(won_entries):
-            account_part = row.get("account")
-            if row.get("account_label"):
-                account_part = f"{account_part} ({row.get('account_label')})"
-            tree.insert(
-                "",
-                tk.END,
-                iid=str(index),
-                values=(
-                    account_part,
-                    row.get("date"),
-                    row.get("time_range"),
-                    row.get("facility"),
-                ),
+        if id_csv:
+            confirmed_csv_path = (
+                self.reservation_confirmation_workflow_service
+                .build_confirmed_accounts_csv_path(id_csv)
             )
-        tree.grid(row=0, column=0, columnspan=2, sticky=tk.NSEW, padx=12, pady=12)
+            self.reservation_confirmation_workflow_service.save_confirmed_accounts_csv(
+                result,
+                id_csv,
+                confirmed_csv_path,
+            )
+            self._log_message(f"予約確定済みID CSVを保存しました: {confirmed_csv_path}")
 
-        selected_indices = []
-
-        def on_ok():
-            selected_indices.extend(sorted(int(item) for item in tree.selection()))
-            dialog.destroy()
-
-        ttk.Button(dialog, text="選択", command=on_ok).grid(
-            row=1, column=0, sticky=tk.W, padx=12, pady=(0, 12)
-        )
-        ttk.Button(dialog, text="キャンセル", command=dialog.destroy).grid(
-            row=1, column=1, sticky=tk.E, padx=12, pady=(0, 12)
-        )
-
-        self.master.wait_window(dialog)
-        return selected_indices
-
-    def _confirm_reservation_from_gui(self, result):
-        count = len(result.get("selected_accounts", []))
-        if count <= 0:
-            return ""
+    def _reservation_confirmation_decision(self, account):
+        account_label = account.get("account_label", "")
+        name_text = f"氏名:{account_label}\n" if account_label else ""
         answer = self._threadsafe_ask_yes_no(
             "予約確定確認",
-            f"{count} アカウントの予約確定を実行しますか？",
+            f"ID:{account['user_id']}\n"
+            f"{name_text}の予約確定画面を開きました。\n\n"
+            "このIDの予約確定を実行しますか？",
         )
         return "yes" if answer else ""
 
