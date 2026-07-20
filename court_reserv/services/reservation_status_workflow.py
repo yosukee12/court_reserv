@@ -131,6 +131,25 @@ class ReservationStatusWorkflowService:
         return results
 
     @staticmethod
+    def build_verification_results(results):
+        """Convert the initial inspection results into CSV verification results."""
+        verification = {}
+        for user_id, result in results.items():
+            status = result.get("status")
+            page = result.get("reservation_page", {})
+            verification_status = {
+                "status": "verified" if status == "opened" else status,
+                "account_label": result.get("account_label", ""),
+                "reservation_page": page,
+            }
+            if status in {"opened", "no_reservation_or_alert"}:
+                verification_status["reservation_count"] = page.get(
+                    "reservation_count", 0
+                )
+            verification[user_id] = verification_status
+        return verification
+
+    @staticmethod
     def save_remaining_accounts_csv(
         input_csv_path,
         cancelled_ids,

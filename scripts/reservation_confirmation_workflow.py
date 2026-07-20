@@ -39,45 +39,24 @@ def _output_id_dict(id_dict, output_file_path):
     return output_file_path
 
 
-def _select_entries(won_entries):
-    if not won_entries:
-        return []
-    raw = input(
-        "Select won entries by number (comma separated). "
-        "Note: confirmation runs per account, so select all won entries for an account. "
-    ).strip()
-    if not raw:
-        return []
-    indices = []
-    for part in raw.split(","):
-        try:
-            number = int(part.strip())
-        except Exception:
-            continue
-        if 1 <= number <= len(won_entries):
-            indices.append(number - 1)
-    return sorted(set(indices))
-
-
-def _confirm_result(result):
-    selected_accounts = result.get("selected_accounts", [])
-    if not selected_accounts:
-        return ""
-    print("Reservation confirmation will run for these accounts:")
-    for account in selected_accounts:
-        masked = result_workflow_service.lottery_result_workflow_service.mask_user_id(
-            account["user_id"]
-        )
-        label = account.get("account_label", "")
-        print(f"- {masked} {label}".strip())
-    return input("Confirm reservation? Type 'yes' to continue: ").strip()
+def _confirm_account(account):
+    user_id = str(account.get("user_id", ""))
+    masked_user_id = (
+        f"{user_id[:2]}***{user_id[-2:]}" if len(user_id) > 4 else "*" * len(user_id)
+    )
+    account_label = account.get("account_label", "")
+    label_text = f" ({account_label})" if account_label else ""
+    answer = input(
+        f"Confirm reservations for account {masked_user_id}{label_text}? [y/N]: "
+    ).strip().lower()
+    return answer in {"y", "yes"}
 
 
 def build_parser():
     parser = argparse.ArgumentParser(
         description=(
-            "Show won lottery entries, let the user choose confirmation targets, "
-            "and confirm reservations only after explicit 'yes'."
+            "Show won lottery entries and ask for explicit confirmation "
+            "for each account before confirming reservations."
         )
     )
     parser.add_argument(
@@ -96,8 +75,6 @@ def build_parser():
 
 
 def main():
-    global result_workflow_service
-
     parser = build_parser()
     args = parser.parse_args()
 
@@ -157,8 +134,7 @@ def main():
     result = result_workflow_service.run(
         id_csv=args.id_csv,
         account_id=args.account_id,
-        select_entries_callback=_select_entries,
-        confirm_callback=_confirm_result,
+        decision_callback=_confirm_account,
     )
     result_workflow_service.print_result(result)
 

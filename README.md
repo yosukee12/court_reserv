@@ -25,8 +25,6 @@ Phase 1 では、設定管理、ドキュメント整備、Browser Layer / Servi
   Phase 2 に向けた基本モデルを提供
 - `court_reserv/ui/`
   Tkinter UI のエントリーポイントと表示制御を担当
-- `court_reserv/legacy/`
-  旧実装の退避先。現行フローの主経路では使用しない
 
 ## Directory Overview
 
@@ -58,7 +56,7 @@ scripts/      将来の補助スクリプト置き場
 
 - 既存 GUI 起動: `python court_reserv/court_reserv.py`
 - 新しい module 起動: `python -m court_reserv.ui.app`
-- GUI では `抽選申込み自動化` / `抽選結果確認` / `予約確定補助` / `設定` を利用できます
+- GUI では `抽選申込み(自動)` / `抽選申込み状況確認` / `抽選結果確認` / `予約確定` / `予約状況確認(キャンセル)` / `予約状況確認(キャンセルなし)` / `FFTC wiki用文字作成` / `設定` を利用できます
 - GUI 下部の Log Window では Workflow の標準出力と logging をリアルタイム表示します
 - Phase 2 dry-run: `python scripts/lottery_automation_dry_run.py --preferences config/preferences.example.yaml --dry-run`
 - Lottery entry workflow: `python scripts/lottery_entry_workflow.py --preferences config/preferences.example.yaml`
@@ -66,7 +64,9 @@ scripts/      将来の補助スクリプト置き場
 - Lottery result workflow: `python scripts/lottery_result_workflow.py`
   抽選結果を一覧表示し、`output/lottery_automation/` に JSON / CSV 保存します
 - Reservation confirmation assist: `python scripts/reservation_confirmation_workflow.py`
-  当選一覧を表示し、選択したアカウントだけを `yes` 確認後に予約確定します
+  当選一覧を表示し、IDごとに `yes` 確認したアカウントだけ予約確定します
+
+予約状況確認後は、入力ID CSVと同じフォルダへ `reservation_check_YYYYMMDD_HHMMSS.csv` を出力します。予約のないIDは出力せず、予約があるIDには現在の予約日時を追記します。
 
 `.env` では次のような値を設定できます。
 
@@ -141,11 +141,12 @@ Selenium 4.6 以降では Selenium Manager が ChromeDriver の検出と取得�
 
 ## Reservation Confirmation Note
 
-既存 `ReservationService` の制約により、予約確定補助はアカウント単位で動作します。
+既存 `ReservationService` の制約により、予約確定補助はID単位で動作します。
 
 - 当選一覧は行単位で表示します
-- ただし確定実行は選択アカウント単位です
-- 同じアカウントの当選を一部だけ確定する操作は、この段階では対応しません
+- 予約確定画面を開いた後、IDごとに実行確認します
+- `yes` の場合だけ確定し、`no` の場合は次のIDへ進みます
+- 同じIDの当選を一部だけ確定する操作は、この段階では対応しません
 
 ## Lottery Guide
 

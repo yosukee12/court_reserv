@@ -106,6 +106,48 @@ def test_run_does_not_ask_to_cancel_when_there_are_no_reservations():
     assert decisions == []
 
 
+def test_build_verification_results_uses_initial_inspection_without_reopening():
+    results = {
+        "10048008": {
+            "status": "opened",
+            "account_label": "対象者",
+            "reservation_page": {
+                "reservation_count": 1,
+                "reservations": [
+                    {"date": "2026年7月18日", "time": "9時00分～11時00分"}
+                ],
+            },
+        },
+        "10048009": {
+            "status": "opened",
+            "account_label": "予約なし",
+            "reservation_page": {"reservation_count": 0, "reservations": []},
+        },
+    }
+
+    verification = ReservationStatusWorkflowService.build_verification_results(results)
+
+    assert verification == {
+        "10048008": {
+            "status": "verified",
+            "account_label": "対象者",
+            "reservation_page": {
+                "reservation_count": 1,
+                "reservations": [
+                    {"date": "2026年7月18日", "time": "9時00分～11時00分"}
+                ],
+            },
+            "reservation_count": 1,
+        },
+        "10048009": {
+            "status": "verified",
+            "account_label": "予約なし",
+            "reservation_page": {"reservation_count": 0, "reservations": []},
+            "reservation_count": 0,
+        },
+    }
+
+
 def test_save_remaining_accounts_csv_removes_only_cancelled_ids(tmp_path):
     input_path = tmp_path / "ID_list.csv"
     output_path = tmp_path / "ID_list_after.csv"

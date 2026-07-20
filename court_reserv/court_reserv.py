@@ -30,6 +30,7 @@ try:
         LotteryService,
         ReservationConfirmationWorkflowService,
         ReservationStatusWorkflowService,
+        FftcWikiTextService,
         ReservationService,
     )
 except Exception:
@@ -53,6 +54,7 @@ except Exception:
         LotteryService,
         ReservationConfirmationWorkflowService,
         ReservationStatusWorkflowService,
+        FftcWikiTextService,
         ReservationService,
     )
 
@@ -133,14 +135,14 @@ class Court_Reserv(tk.Frame):
     def __init__(self, master=None):
         super().__init__(master)
         self.pack(fill=tk.BOTH, expand=True)
-        self.master.geometry("980x780")
-        self.master.minsize(900, 700)
+        self.master.geometry("1180x900")
+        self.master.minsize(1050, 820)
         self.master.title("東京都テニスコート予約")
         self.repo_root = Path(__file__).resolve().parents[1]
         self.local_config_path = self.repo_root / "config.local.ini"
         self.logger = logging.getLogger("court_reserv.gui")
         self.worker_thread = None
-        self.window_geometry = "980x780"
+        self.window_geometry = "1180x900"
 
         self.browser_session = BrowserSession(config)
         self.login_service = LoginService(
@@ -235,10 +237,12 @@ class Court_Reserv(tk.Frame):
             logger=self.logger,
             sleep_func=time.sleep,
         )
+        self.fftc_wiki_text_service = FftcWikiTextService()
 
         self.id_csv_var = tk.StringVar()
         self.preferences_var = tk.StringVar()
         self.lottery_application_check_output_dir_var = tk.StringVar()
+        self.fftc_wiki_csv_var = tk.StringVar()
         self.driver = None
 
         self._load_last_settings()
@@ -391,7 +395,7 @@ class Court_Reserv(tk.Frame):
         container = ttk.Frame(self, padding=10, style="App.TFrame")
         container.grid(row=0, column=0, sticky=tk.NSEW)
         container.columnconfigure(1, weight=1)
-        container.rowconfigure(6, weight=1)
+        container.rowconfigure(7, weight=1)
 
         header = ttk.Frame(container, padding=(12, 8), style="Header.TFrame")
         header.grid(row=0, column=0, columnspan=3, sticky=tk.EW, pady=(0, 16))
@@ -450,10 +454,23 @@ class Court_Reserv(tk.Frame):
             style="File.TButton",
         ).grid(row=3, column=2, sticky=tk.EW, pady=4)
 
+        ttk.Label(container, text="FFTC wiki用CSV", style="Form.TLabel").grid(
+            row=4, column=0, sticky=tk.W, pady=4
+        )
+        ttk.Entry(container, textvariable=self.fftc_wiki_csv_var).grid(
+            row=4, column=1, sticky=tk.EW, padx=(8, 8), pady=4
+        )
+        ttk.Button(
+            container,
+            text="参照",
+            command=self.browse_fftc_wiki_csv,
+            style="File.TButton",
+        ).grid(row=4, column=2, sticky=tk.EW, pady=4)
+
         action_frame = ttk.LabelFrame(
             container, text="操作メニュー", padding=12, style="Menu.TLabelframe"
         )
-        action_frame.grid(row=4, column=0, columnspan=3, sticky=tk.EW, pady=(16, 16))
+        action_frame.grid(row=5, column=0, columnspan=3, sticky=tk.EW, pady=(16, 16))
         for index in range(4):
             action_frame.columnconfigure(index, weight=1)
 
@@ -528,10 +545,20 @@ class Court_Reserv(tk.Frame):
             row=0, column=1, sticky=tk.EW, padx=(4, 0)
         )
 
+        self.button_fftc_wiki_text = ttk.Button(
+            other_frame,
+            text="FFTC wiki用文字作成",
+            command=self.run_fftc_wiki_text_workflow,
+            style="Secondary.TButton",
+        )
+        self.button_fftc_wiki_text.grid(
+            row=1, column=0, columnspan=2, sticky=tk.EW, pady=(8, 0)
+        )
+
         settings_frame = ttk.LabelFrame(
             container, text="設定", padding=8, style="Settings.TLabelframe"
         )
-        settings_frame.grid(row=5, column=0, columnspan=3, sticky=tk.EW, pady=(0, 16))
+        settings_frame.grid(row=6, column=0, columnspan=3, sticky=tk.EW, pady=(0, 16))
         self.button_settings = ttk.Button(
             settings_frame,
             text="設定を開く",
@@ -541,15 +568,15 @@ class Court_Reserv(tk.Frame):
         self.button_settings.grid(row=0, column=0, sticky=tk.W)
 
         log_frame = ttk.LabelFrame(container, text="実行ログ", padding=8, style="Settings.TLabelframe")
-        log_frame.grid(row=6, column=0, columnspan=3, sticky=tk.NSEW)
+        log_frame.grid(row=7, column=0, columnspan=3, sticky=tk.NSEW)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-        container.rowconfigure(6, weight=1)
+        container.rowconfigure(7, weight=1)
 
         self.log_text = scrolledtext.ScrolledText(
             log_frame,
             wrap=tk.WORD,
-            height=8,
+            height=12,
             state=tk.DISABLED,
             background="#102C3E",
             foreground="#E6F3E9",
@@ -621,6 +648,14 @@ class Court_Reserv(tk.Frame):
         path = filedialog.askdirectory(title="抽選申込み状況CSV 出力先フォルダを選択")
         if path:
             self.lottery_application_check_output_dir_var.set(path)
+
+    def browse_fftc_wiki_csv(self):
+        path = filedialog.askopenfilename(
+            title="FFTC wiki用の予約確定済みCSVを選択",
+            filetypes=[("CSV", "*.csv"), ("すべてのファイル", "*.*")],
+        )
+        if path:
+            self.fftc_wiki_csv_var.set(path)
 
     def _run_in_background(self, label, func):
         if self.worker_thread and self.worker_thread.is_alive():
@@ -720,6 +755,14 @@ class Court_Reserv(tk.Frame):
             raise FileNotFoundError(f"ID CSV が見つかりません: {path}")
         return path
 
+    def _resolve_fftc_wiki_csv_for_execution(self):
+        path = self.fftc_wiki_csv_var.get().strip()
+        if not path:
+            raise FileNotFoundError("FFTC wiki用CSVが指定されていません")
+        if not Path(path).exists():
+            raise FileNotFoundError(f"FFTC wiki用CSVが見つかりません: {path}")
+        return path
+
     def _load_last_settings(self):
         local = configparser.ConfigParser()
         if self.local_config_path.exists():
@@ -741,6 +784,9 @@ class Court_Reserv(tk.Frame):
         self.lottery_application_check_output_dir_var.set(
             local.get("GUI", "last_lottery_application_check_output_dir", fallback="")
         )
+        self.fftc_wiki_csv_var.set(
+            local.get("GUI", "last_fftc_wiki_csv", fallback="")
+        )
         self.window_geometry = local.get(
             "GUI",
             "last_window_geometry",
@@ -760,6 +806,7 @@ class Court_Reserv(tk.Frame):
             "last_lottery_application_check_output_dir",
             self.lottery_application_check_output_dir_var.get().strip(),
         )
+        local.set("GUI", "last_fftc_wiki_csv", self.fftc_wiki_csv_var.get().strip())
         local.set("GUI", "last_window_geometry", self.master.geometry())
         with self.local_config_path.open("w", encoding="utf-8") as fh:
             local.write(fh)
@@ -776,6 +823,23 @@ class Court_Reserv(tk.Frame):
             "抽選申込み状況確認ワークフロー",
             self._execute_lottery_application_check_workflow,
         )
+
+    def run_fftc_wiki_text_workflow(self):
+        self._run_in_background(
+            "FFTC wiki用文字作成ワークフロー",
+            self._execute_fftc_wiki_text_workflow,
+        )
+
+    def _execute_fftc_wiki_text_workflow(self):
+        csv_path = self._resolve_fftc_wiki_csv_for_execution()
+        wiki_text = self.fftc_wiki_text_service.build_from_csv(csv_path)
+        if not wiki_text:
+            self._log_message(
+                f"FFTC wiki用文字を作成できる予約日時がありません: {csv_path}",
+                level="WARNING",
+            )
+            return
+        self._log_message(f"FFTC wiki用文字:\n{wiki_text}")
 
     def _execute_lottery_entry_workflow(self):
         preference = self._load_current_preference()
@@ -987,9 +1051,16 @@ class Court_Reserv(tk.Frame):
                 self._log_message(
                     f"キャンセル対象 ID:{self._mask_user_id_for_log(user_id)}{label_text}"
                 )
-        verification = self.reservation_status_workflow_service.verify_accounts(
-            account_list
-        )
+        if allow_cancel:
+            verification = self.reservation_status_workflow_service.verify_accounts(
+                account_list
+            )
+        else:
+            verification = (
+                self.reservation_status_workflow_service.build_verification_results(
+                    result
+                )
+            )
         no_reservation_ids = []
         reservation_details = {}
         for user_id, status in result.items():

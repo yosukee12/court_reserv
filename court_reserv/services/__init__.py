@@ -19,6 +19,7 @@ from .lottery_application_check_workflow import LotteryApplicationCheckWorkflowS
 from .lottery_result_workflow import LotteryResultWorkflowService
 from .reservation_confirmation_workflow import ReservationConfirmationWorkflowService
 from .reservation_status_workflow import ReservationStatusWorkflowService
+from .fftc_wiki_text import FftcWikiTextService
 from .lottery_entry_slot_collector import LotteryEntrySlotCollector
 
 __all__ = [
@@ -36,5 +37,6 @@ __all__ = [
     "LotteryResultWorkflowService",
     "ReservationConfirmationWorkflowService",
     "ReservationStatusWorkflowService",
+    "FftcWikiTextService",
     "LotteryEntrySlotCollector",
 ]

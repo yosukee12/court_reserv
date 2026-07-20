@@ -59,12 +59,11 @@
 - 出力物は `logs/`, `output/`, `output/debug_pages/` を利用する
 - Preference ファイルには ID / password を入れず、認証情報は既存の ID CSV またはローカル設定から解決する
 
-## Legacy And Scripts
+## Scripts And Retired Code
 
 - `scripts/` には検証用・補助用スクリプトのみを置く
-- `court_reserv/legacy/` には旧実装を退避し、現行実装から参照しない
 - 検証用スクリプトは正式機能化しない限り、GUI の正式起動パスとして扱わない
-- 不要になった検証用スクリプトは削除し、履歴は Git と `legacy/` で追跡する
+- 不要になった旧実装や検証用スクリプトは削除し、必要な場合は Git 履歴から参照する
 
 ## Entrypoints
 

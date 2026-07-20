@@ -37,7 +37,7 @@ class IdManagerService:
         """
         id_dict = {}
         if os.path.exists(csv_file_path):
-            with open(csv_file_path) as f:
+            with open(csv_file_path, newline="", encoding="utf-8-sig") as f:
                 for row in csv.reader(f):
                     if len(row) > 3 and row[0] != "" and row[3] != "":
                         if len(row[0]) == 8:
@@ -52,7 +52,7 @@ class IdManagerService:
                                     {row[0]: [row[1], row[2], row[3], row[4], row[5]]}
                                 )
                         else:
-                            print["ID: " + row[0] + ",pass: " + row[1] + "不正なID"]
+                            print("ID: " + row[0] + ",pass: " + row[1] + "不正なID")
                             continue
         else:
             print("csvファイルが存在しません")
