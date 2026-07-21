@@ -1,5 +1,32 @@
 __pycache__/
-debug_pages/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.DS_Store
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local secrets and machine-specific settings
+.env
+config.ini
+config.local.ini
+
+# Generated logs and outputs
 *.csv
 *.log
-*.html
+logs/*
+!logs/.gitkeep
+output/*
+!output/.gitkeep
+
+# Debug artifacts may contain personal information
+debug_pages/
+court_reserv/debug_pages/
+*/debug_pages/
+output/debug_pages/
+
+# Documentation build artifacts
+docs/_build/

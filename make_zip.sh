@@ -1,32 +1,41 @@
+#!/bin/bash
+set -euo pipefail
+
 ZIP_PATH="/Users/yosuke/develop/chatgpt/court_reserv.zip"
 
 rm -f "$ZIP_PATH"
 
 zip -r "$ZIP_PATH" . \
-  -x "node_modules/" \
-  -x "node_modules/*" \
-  -x "*/node_modules/*" \
-  -x "tmp_plan_*/*" \
-  -x "*/tmp_plan_*/*" \
-  -x "dist/" \
-  -x "dist/*" \
-  -x "*/dist/*" \
-  -x ".terraform/*" \
-  -x "*/.terraform/*" \
   -x ".git/*" \
   -x "*/.git/*" \
   -x ".DS_Store" \
   -x "*/.DS_Store" \
-  -x "terraform.tfstate*" \
-  -x "*/terraform.tfstate*" \
+  -x ".idea/*" \
+  -x "*/.idea/*" \
+  -x "__pycache__/*" \
+  -x "*/__pycache__/*" \
+  -x "*.pyc" \
+  -x "*/.pytest_cache/*" \
+  -x ".mypy_cache/*" \
+  -x "*/.mypy_cache/*" \
+  -x ".ruff_cache/*" \
+  -x "*/.ruff_cache/*" \
+  -x ".venv/*" \
+  -x "*/.venv/*" \
+  -x "venv/*" \
+  -x "*/venv/*" \
   -x ".env" \
-  -x ".env.*" \
   -x "*/.env" \
+  -x ".env.*" \
   -x "*/.env.*" \
+  -x "config.local.ini" \
+  -x "*/config.local.ini" \
   -x "local.settings.json" \
   -x "*/local.settings.json" \
-  -x "terraform.tfvars" \
-  -x "*/terraform.tfvars" \
-  -x "backend.tf" \
-  -x "*/backend.tf" \
+  -x "docs/_build/*" \
+  -x "*/docs/_build/*" \
+  -x "*.csv" \
+  -x "*.xlsx" \
   -x "make_zip.sh"
+
+echo "Created: $ZIP_PATH"

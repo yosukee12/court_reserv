@@ -1,1419 +1,1667 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+
 import configparser
-from pathlib import Path
-import time
-import logging
+import contextlib
 import datetime
-import calendar
-import re
+import logging
+import threading
+import time
+from pathlib import Path
+
 try:
+    from .browser import BrowserSession, LoginService, NavigationService
+    from .config import (
+        get_debug_output_dir,
+        get_output_base_path,
+        load_config,
+        load_preferences_data,
+        load_reservation_preference,
+        save_preferences_data,
+    )
     from .manage_id import Manage_Id as mi
+    from .services import (
+        AvailabilityService,
+        IdManagerService,
+        LotteryEntrySlotCollector,
+        LotteryApplicationCheckWorkflowService,
+        LotteryEntryWorkflowService,
+        LotteryResultWorkflowService,
+        LotteryService,
+        ReservationConfirmationWorkflowService,
+        ReservationStatusWorkflowService,
+        FftcWikiTextService,
+        ReservationService,
+    )
 except Exception:
-    # allow running the module as a script (no package context)
+    from browser import BrowserSession, LoginService, NavigationService
+    from config import (
+        get_debug_output_dir,
+        get_output_base_path,
+        load_config,
+        load_preferences_data,
+        load_reservation_preference,
+        save_preferences_data,
+    )
     from manage_id import Manage_Id as mi
+    from services import (
+        AvailabilityService,
+        IdManagerService,
+        LotteryEntrySlotCollector,
+        LotteryApplicationCheckWorkflowService,
+        LotteryEntryWorkflowService,
+        LotteryResultWorkflowService,
+        LotteryService,
+        ReservationConfirmationWorkflowService,
+        ReservationStatusWorkflowService,
+        FftcWikiTextService,
+        ReservationService,
+    )
+
 import tkinter as tk
-from tkinter import ttk, messagebox
-from functools import partial
+from tkinter import font as tkfont
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.select import Select
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException, JavascriptException
-from bs4 import BeautifulSoup as bs
 
-# Config
-config = configparser.ConfigParser()
-# Load config.ini from package directory (so scripts can run from workspace root)
-_base_dir = Path(__file__).resolve().parent
-_config_path = _base_dir / 'config.ini'
-if not _config_path.exists():
-    raise FileNotFoundError(f'config.ini not found at {_config_path}. Run from package or create config.ini there.')
-config.read(_config_path, encoding='utf-8')
+config = load_config()
 
-# Log
-logfile = config['PATH']['LOG_PATH'] + '/court_reserv.log'
-log_fmt = '%(asctime)s - %(levelname)s - %(message)s'
-logging.basicConfig(filename=logfile, format=log_fmt, level=logging.INFO)
+logfile = config["PATH"]["LOG_PATH"] + "/court_reserv.log"
+log_fmt = "%(asctime)s - %(levelname)s - %(message)s"
+log_level_name = config.get("LOG", "LEVEL", fallback="INFO").upper()
+log_level = getattr(logging, log_level_name, logging.INFO)
+logging.basicConfig(filename=logfile, format=log_fmt, level=log_level)
 
-# Output csv path
-check_lottery_csv = config['PATH']['OUTPUT_CSV_PATH'] + '/check_lottery_{0}.csv'.format(datetime.date.today())
-check_result_csv = config['PATH']['OUTPUT_CSV_PATH'] + '/check_result_{0}.csv'.format(datetime.date.today())
-determined_csv = config['PATH']['OUTPUT_CSV_PATH'] + '/determined_result_{0}.csv'.format(datetime.date.today())
-check_reserv_csv = config['PATH']['OUTPUT_CSV_PATH'] + '/check_reserv_{0}.csv'.format(datetime.date.today())
-alive_id_list_csv = config['PATH']['OUTPUT_CSV_PATH'] + '/ID_list_alive_{0}.csv'.format(datetime.date.today())
-dead_id_list_csv = config['PATH']['OUTPUT_CSV_PATH'] + '/ID_list_dead_{0}.csv'.format(datetime.date.today())
+check_lottery_csv = (
+    config["PATH"]["OUTPUT_CSV_PATH"]
+    + "/check_lottery_{0}.csv".format(datetime.date.today())
+)
+check_result_csv = (
+    config["PATH"]["OUTPUT_CSV_PATH"]
+    + "/check_result_{0}.csv".format(datetime.date.today())
+)
+determined_csv = (
+    config["PATH"]["OUTPUT_CSV_PATH"]
+    + "/determined_result_{0}.csv".format(datetime.date.today())
+)
+check_reserv_csv = (
+    config["PATH"]["OUTPUT_CSV_PATH"]
+    + "/check_reserv_{0}.csv".format(datetime.date.today())
+)
+alive_id_list_csv = (
+    config["PATH"]["OUTPUT_CSV_PATH"]
+    + "/ID_list_alive_{0}.csv".format(datetime.date.today())
+)
+dead_id_list_csv = (
+    config["PATH"]["OUTPUT_CSV_PATH"]
+    + "/ID_list_dead_{0}.csv".format(datetime.date.today())
+)
 
-# Selenium Options
-options = Options()
-options.add_argument('--disable-gpu');
-options.add_argument('--disable-extensions');
-options.add_argument('--proxy-server="direct://"');
-options.add_argument('--proxy-bypass-list=*');
-options.add_argument('--start-maximized');
 
-driver_path = config['PATH']['DRIVER_PATH']
-top_url = config['URL']['TOP_URL']
+class GuiLogHandler(logging.Handler):
+    def __init__(self, callback):
+        super().__init__()
+        self.callback = callback
+        self.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+
+    def emit(self, record):
+        try:
+            self.callback(self.format(record))
+        except Exception:
+            pass
+
+
+class GuiStreamWriter:
+    def __init__(self, callback, level="INFO"):
+        self.callback = callback
+        self.level = level
+        self._buffer = ""
+
+    def write(self, text):
+        self._buffer += str(text)
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            if line.strip():
+                self.callback(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} [{self.level}] {line}")
+
+    def flush(self):
+        if self._buffer.strip():
+            self.callback(
+                f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} [{self.level}] {self._buffer.strip()}"
+            )
+        self._buffer = ""
+
 
 class Court_Reserv(tk.Frame):
     def __init__(self, master=None):
-        """
-        コンストラクタ
-          引数でIDリストのCSVファイルを指定してID dictに変換
-          Tkinterのウィジェット作成
-        """
-        # tkinter
         super().__init__(master)
-        self.pack()
-        self.master.geometry("500x500")
-        self.master.title("Court Reservation")
+        self.pack(fill=tk.BOTH, expand=True)
+        self.master.geometry("1180x900")
+        self.master.minsize(1050, 820)
+        self.master.title("東京都テニスコート予約")
+        self.repo_root = Path(__file__).resolve().parents[1]
+        self.local_config_path = self.repo_root / "config.local.ini"
+        self.logger = logging.getLogger("court_reserv.gui")
+        self.worker_thread = None
+        self.window_geometry = "1180x900"
 
+        self.browser_session = BrowserSession(config)
+        self.login_service = LoginService(
+            top_url=config["URL"]["TOP_URL"],
+            wait_factory=self.browser_session.get_wait,
+            logger=self.logger,
+            show_info=self._threadsafe_show_info,
+            ask_yes_no=self._threadsafe_ask_yes_no,
+            sleep_func=time.sleep,
+        )
+        self.navigation_service = NavigationService(
+            wait_factory=self.browser_session.get_wait,
+            sleep_func=time.sleep,
+            logger=self.logger,
+            get_debug_output_dir=get_debug_output_dir,
+        )
+        self.lottery_service = LotteryService(
+            config=config,
+            browser_session=self.browser_session,
+            login_service=self.login_service,
+            navigation_service=self.navigation_service,
+            logger=self.logger,
+            show_info=self._threadsafe_show_info,
+            output_id_dict=mi.output_csv_from_id_dict,
+            sleep_func=time.sleep,
+        )
+        self.reservation_service = ReservationService(
+            config=config,
+            browser_session=self.browser_session,
+            navigation_service=self.navigation_service,
+            logger=self.logger,
+            get_id_dict_from_csv=mi.get_id_dict_from_csv,
+            output_id_dict=mi.output_csv_from_id_dict,
+            sleep_func=time.sleep,
+        )
+        self.availability_service = AvailabilityService(
+            config=config,
+            browser_session=self.browser_session,
+            navigation_service=self.navigation_service,
+            logger=self.logger,
+            get_debug_output_dir=get_debug_output_dir,
+            sleep_func=time.sleep,
+        )
+        self.id_manager_service = IdManagerService(config=config, sleep_func=time.sleep)
+        self.lottery_entry_workflow_service = LotteryEntryWorkflowService(
+            config=config,
+            browser_session=self.browser_session,
+            login_service=self.login_service,
+            navigation_service=self.navigation_service,
+            lottery_service=self.lottery_service,
+            id_manager_service=self.id_manager_service,
+            slot_collector=LotteryEntrySlotCollector(
+                navigation_service=self.navigation_service,
+                browser_session=self.browser_session,
+                logger=self.logger,
+            ),
+            logger=self.logger,
+        )
+        self.lottery_application_check_workflow_service = (
+            LotteryApplicationCheckWorkflowService(
+                config=config,
+                browser_session=self.browser_session,
+                login_service=self.login_service,
+                navigation_service=self.navigation_service,
+                id_manager_service=self.id_manager_service,
+                logger=self.logger,
+                sleep_func=time.sleep,
+            )
+        )
+        self.lottery_result_workflow_service = LotteryResultWorkflowService(
+            config=config,
+            browser_session=self.browser_session,
+            login_service=self.login_service,
+            navigation_service=self.navigation_service,
+            lottery_service=self.lottery_service,
+            id_manager_service=self.id_manager_service,
+            logger=self.logger,
+        )
+        self.reservation_confirmation_workflow_service = (
+            ReservationConfirmationWorkflowService(
+                lottery_result_workflow_service=self.lottery_result_workflow_service,
+                reservation_service=self.reservation_service,
+                login_service=self.login_service,
+                logger=self.logger,
+            )
+        )
+        self.reservation_status_workflow_service = ReservationStatusWorkflowService(
+            reservation_service=self.reservation_service,
+            login_service=self.login_service,
+            browser_session=self.browser_session,
+            navigation_service=self.navigation_service,
+            logger=self.logger,
+            sleep_func=time.sleep,
+        )
+        self.fftc_wiki_text_service = FftcWikiTextService()
+
+        self.id_csv_var = tk.StringVar()
+        self.preferences_var = tk.StringVar()
+        self.lottery_application_check_output_dir_var = tk.StringVar()
+        self.fftc_wiki_csv_var = tk.StringVar()
+        self.driver = None
+
+        self._load_last_settings()
+        self.master.geometry(self.window_geometry)
+        self._configure_tennis_styles()
         self.create_widgets()
+        self._install_log_handler()
+        self.master.protocol("WM_DELETE_WINDOW", self.on_close)
+        self._log_message("GUI initialized.")
+        self._bring_window_to_front_on_startup()
+
+    def _bring_window_to_front_on_startup(self):
+        """Raise the GUI once at startup without keeping it always-on-top."""
+        try:
+            previous_topmost = self.master.attributes("-topmost")
+            self.master.attributes("-topmost", True)
+            self.master.lift()
+            self.master.focus_force()
+            self.master.after(
+                500,
+                lambda: self.master.attributes("-topmost", previous_topmost),
+            )
+        except tk.TclError:
+            pass
+
+    def _configure_tennis_styles(self):
+        """Apply a tennis-court inspired visual theme to the GUI only."""
+        style = ttk.Style(self.master)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        surface = "#F3F8F4"
+        navy = "#123047"
+        court_green = "#16804A"
+        court_green_dark = "#0E6239"
+        pale_green = "#E4F2E8"
+        text = "#173042"
+        ui_font = "Helvetica Neue"
+
+        for font_name, size, weight in (
+            ("TkDefaultFont", 12, "normal"),
+            ("TkTextFont", 12, "normal"),
+            ("TkMenuFont", 11, "normal"),
+            ("TkHeadingFont", 12, "bold"),
+            ("TkFixedFont", 11, "normal"),
+        ):
+            font = tkfont.nametofont(font_name)
+            font.configure(family=ui_font, size=size, weight=weight)
+
+        self.master.configure(background=surface)
+        style.configure("App.TFrame", background=surface)
+        style.configure("Header.TFrame", background=navy)
+        style.configure(
+            "HeaderTitle.TLabel",
+            background=navy,
+            foreground="white",
+            font=(ui_font, 18, "bold"),
+        )
+        style.configure(
+            "HeaderSub.TLabel",
+            background=navy,
+            foreground="#B9DCC6",
+            font=(ui_font, 10, "bold"),
+        )
+        style.configure(
+            "Form.TLabel",
+            background=surface,
+            foreground=text,
+            font=(ui_font, 11, "bold"),
+        )
+        style.configure(
+            "Menu.TLabelframe",
+            background=surface,
+            bordercolor="#B8D4C1",
+            relief="solid",
+        )
+        style.configure(
+            "Menu.TLabelframe.Label",
+            background=surface,
+            foreground=navy,
+            font=(ui_font, 12, "bold"),
+        )
+        style.configure(
+            "Period.TLabelframe",
+            background=pale_green,
+            bordercolor="#9BC8A8",
+            relief="solid",
+        )
+        style.configure(
+            "Period.TLabelframe.Label",
+            background=pale_green,
+            foreground=court_green_dark,
+            font=(ui_font, 11, "bold"),
+        )
+        style.configure(
+            "Settings.TLabelframe",
+            background=surface,
+            bordercolor="#CCD7DE",
+            relief="solid",
+        )
+        style.configure(
+            "Settings.TLabelframe.Label",
+            background=surface,
+            foreground="#52636E",
+            font=(ui_font, 11, "bold"),
+        )
+        style.configure(
+            "Primary.TButton",
+            background=court_green,
+            foreground="white",
+            borderwidth=0,
+            padding=(10, 6),
+            font=(ui_font, 11, "bold"),
+        )
+        style.map(
+            "Primary.TButton",
+            background=[("active", court_green_dark), ("disabled", "#A8C9B2")],
+            foreground=[("disabled", "#F5F5F5")],
+        )
+        style.configure(
+            "Secondary.TButton",
+            background="#DDEEE2",
+            foreground=court_green_dark,
+            borderwidth=1,
+            padding=(10, 6),
+            font=(ui_font, 11, "bold"),
+        )
+        style.map(
+            "Secondary.TButton",
+            background=[("active", "#C7E3CF"), ("disabled", "#E5EAE7")],
+            foreground=[("disabled", "#83918A")],
+        )
+        style.configure(
+            "Settings.TButton",
+            background="#E7EDF0",
+            foreground=navy,
+            borderwidth=0,
+            padding=(10, 5),
+            font=(ui_font, 11, "bold"),
+        )
+        style.map("Settings.TButton", background=[("active", "#D7E1E6")])
+        style.configure("File.TButton", padding=(10, 5), font=(ui_font, 11, "bold"))
 
     def create_widgets(self):
-        # Mode selection (semi / full auto)
-        self.mode_var = tk.StringVar(value='semi')
-        self.label_mode = ttk.Label(self, text="動作モード:")
-        self.radio_semi = ttk.Radiobutton(self, text='半自動', variable=self.mode_var, value='semi')
-        self.radio_full = ttk.Radiobutton(self, text='全自動', variable=self.mode_var, value='full')
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
 
-        self.label_mode.grid(row=0, column=2, padx=5)
-        self.radio_semi.grid(row=0, column=3, padx=2)
-        self.radio_full.grid(row=0, column=4, padx=2)
-        # Label CSV PATH
-        self.label_csvpath = ttk.Label(self, text="CSVファイル出力先: " + config['PATH']['OUTPUT_CSV_PATH'], background="white")
+        container = ttk.Frame(self, padding=10, style="App.TFrame")
+        container.grid(row=0, column=0, sticky=tk.NSEW)
+        container.columnconfigure(1, weight=1)
+        container.rowconfigure(7, weight=1)
 
-        #Entry
-        self.entry_input_csv = ttk.Entry(self)
-        self.entry_input_csv.insert(tk.END, config['PATH']['OUTPUT_CSV_PATH'] + "/")
+        header = ttk.Frame(container, padding=(12, 8), style="Header.TFrame")
+        header.grid(row=0, column=0, columnspan=3, sticky=tk.EW, pady=(0, 16))
+        header.columnconfigure(0, weight=1)
+        ttk.Label(
+            header,
+            text="東京都テニスコート予約",
+            style="HeaderTitle.TLabel",
+        ).grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(
+            header,
+            text="TENNIS COURT RESERVATION  /  WORKFLOW CONSOLE",
+            style="HeaderSub.TLabel",
+        ).grid(row=1, column=0, sticky=tk.W, pady=(4, 0))
 
-        # Label 1
-        self.label1 = ttk.Label(self, text="1. 毎月1日〜10日", background="white")
+        ttk.Label(container, text="ID CSVファイル", style="Form.TLabel").grid(
+            row=1, column=0, sticky=tk.W, pady=4
+        )
+        ttk.Entry(container, textvariable=self.id_csv_var).grid(
+            row=1, column=1, sticky=tk.EW, padx=(8, 8), pady=4
+        )
+        ttk.Button(
+            container,
+            text="参照",
+            command=self.browse_id_csv,
+            style="File.TButton",
+        ).grid(row=1, column=2, sticky=tk.EW, pady=4)
 
-        #Reserv Button (mode-aware)
-        self.button_semiauto_reserv = ttk.Button(self)
-        self.button_semiauto_reserv.configure(text="抽選申込み")
-        self.button_semiauto_reserv.configure(command = self.start_reservation_button)
+        ttk.Label(container, text="設定YAML", style="Form.TLabel").grid(
+            row=2, column=0, sticky=tk.W, pady=4
+        )
+        ttk.Entry(container, textvariable=self.preferences_var).grid(
+            row=2, column=1, sticky=tk.EW, padx=(8, 8), pady=4
+        )
+        ttk.Button(
+            container,
+            text="参照",
+            command=self.browse_preferences,
+            style="File.TButton",
+        ).grid(row=2, column=2, sticky=tk.EW, pady=4)
 
-        #Check Lottery Button
-        self.button_check_lottery = ttk.Button(self)
-        self.button_check_lottery.configure(text="抽選申込み状況確認")
-        self.button_check_lottery.configure(command = self.check_lottery_button)
+        ttk.Label(
+            container,
+            text="抽選申込み状況CSV出力先",
+            style="Form.TLabel",
+        ).grid(
+            row=3, column=0, sticky=tk.W, pady=4
+        )
+        ttk.Entry(container, textvariable=self.lottery_application_check_output_dir_var).grid(
+            row=3, column=1, sticky=tk.EW, padx=(8, 8), pady=4
+        )
+        ttk.Button(
+            container,
+            text="参照",
+            command=self.browse_lottery_application_check_output_dir,
+            style="File.TButton",
+        ).grid(row=3, column=2, sticky=tk.EW, pady=4)
 
-        # Label 2
-        self.label2 = ttk.Label(self, text="2. 毎月14日〜", background="white")
+        ttk.Label(container, text="FFTC wiki用CSV", style="Form.TLabel").grid(
+            row=4, column=0, sticky=tk.W, pady=4
+        )
+        ttk.Entry(container, textvariable=self.fftc_wiki_csv_var).grid(
+            row=4, column=1, sticky=tk.EW, padx=(8, 8), pady=4
+        )
+        ttk.Button(
+            container,
+            text="参照",
+            command=self.browse_fftc_wiki_csv,
+            style="File.TButton",
+        ).grid(row=4, column=2, sticky=tk.EW, pady=4)
 
-        # Check Result Button
-        self.button_check_result = ttk.Button(self)
-        self.button_check_result.configure(text="抽選当選結果確認")
-        self.button_check_result.configure(command=self.check_result_button)
+        action_frame = ttk.LabelFrame(
+            container, text="操作メニュー", padding=12, style="Menu.TLabelframe"
+        )
+        action_frame.grid(row=5, column=0, columnspan=3, sticky=tk.EW, pady=(16, 16))
+        for index in range(4):
+            action_frame.columnconfigure(index, weight=1)
 
-        #Entry
-        self.entry_result_csv = ttk.Entry(self)
-        self.entry_result_csv.insert(tk.END, config['PATH']['OUTPUT_CSV_PATH'] + "/")
+        entry_frame = ttk.LabelFrame(
+            action_frame, text="毎月1〜10日", padding=8, style="Period.TLabelframe"
+        )
+        entry_frame.grid(row=0, column=0, columnspan=2, sticky=tk.EW, padx=(0, 8))
+        entry_frame.columnconfigure(0, weight=1)
+        entry_frame.columnconfigure(1, weight=1)
 
-        # Determine Reserv Button
-        self.button_determine_reserv = ttk.Button(self)
-        self.button_determine_reserv.configure(text="予約確定")
-        self.button_determine_reserv.configure(command=self.determine_button)
+        result_frame = ttk.LabelFrame(
+            action_frame, text="毎月14〜20日", padding=8, style="Period.TLabelframe"
+        )
+        result_frame.grid(row=0, column=2, columnspan=2, sticky=tk.EW, padx=(8, 0))
+        result_frame.columnconfigure(0, weight=1)
+        result_frame.columnconfigure(1, weight=1)
 
-        # Check Reserv Button
-        self.button_check_reserv = ttk.Button(self)
-        self.button_check_reserv.configure(text="予約確定確認")
-        self.button_check_reserv.configure(command=self.check_reserv_button)
+        other_frame = ttk.LabelFrame(
+            action_frame, text="その他", padding=8, style="Period.TLabelframe"
+        )
+        other_frame.grid(row=1, column=0, columnspan=4, sticky=tk.EW, pady=(12, 0))
+        other_frame.columnconfigure(0, weight=1)
+        other_frame.columnconfigure(1, weight=1)
 
-        # Check Court Button
-        self.button_check_court = ttk.Button(self)
-        self.button_check_court.configure(text="空きコート確認")
-        self.button_check_court.configure(command=partial(self.check_court, "9"))
+        self.button_auto_lottery = ttk.Button(
+            entry_frame,
+            text="抽選申込み(自動)",
+            command=self.run_lottery_entry_workflow,
+            style="Primary.TButton",
+        )
+        self.button_auto_lottery.grid(row=0, column=0, sticky=tk.EW, padx=(0, 4))
 
-        #Entry
-        self.entry_check_id_csv = ttk.Entry(self)
-        self.entry_check_id_csv.insert(tk.END, config['PATH']['OUTPUT_CSV_PATH'] + "/")
+        self.button_lottery_check = ttk.Button(
+            entry_frame,
+            text="抽選申込み状況確認",
+            command=self.run_lottery_application_check_workflow,
+            style="Secondary.TButton",
+        )
+        self.button_lottery_check.grid(row=0, column=1, sticky=tk.EW, padx=(4, 0))
 
-        # Check ID Button
-        self.button_check_id = ttk.Button(self)
-        self.button_check_id.configure(text="ID有効確認")
-        self.button_check_id.configure(command=self.check_id_button)
+        self.button_lottery_result = ttk.Button(
+            result_frame,
+            text="抽選結果確認",
+            command=self.run_lottery_result_workflow,
+            style="Secondary.TButton",
+        )
+        self.button_lottery_result.grid(row=0, column=0, sticky=tk.EW, padx=(0, 4))
 
-        # 配置
-        self.label_csvpath.grid(row=0, column=0, columnspan=2)
-        self.entry_input_csv.grid(row=1, column=0, columnspan=10, padx=5, pady=5, sticky=tk.W+tk.E)
-        self.label1.grid(row=2, column=0, columnspan=1)
-        self.button_semiauto_reserv.grid(row=2, column=1, columnspan=3, sticky=tk.W + tk.E)
-        self.button_check_lottery.grid(row=3, column=1, columnspan=1, padx=5, pady=5, sticky=tk.W + tk.E)
-        self.label2.grid(row=4, column=0, columnspan=1)
-        self.button_check_result.grid(row=4, column=1, columnspan=3, sticky=tk.W+tk.E)
-        self.entry_result_csv.grid(row=5, column=0, columnspan=10, padx=5, pady=5, sticky=tk.W + tk.E)
-        self.button_determine_reserv.grid(row=6, column=1, columnspan=1, padx=5, pady=5, sticky=tk.W+tk.E)
-        self.button_check_reserv.grid(row=7, column=1, columnspan=1, padx=5, pady=5, sticky=tk.W + tk.E)
-        self.button_check_court.grid(row=8, column=0, columnspan=3, padx=5, pady=5, sticky=tk.W+tk.E)
-        self.entry_check_id_csv.grid(row=11, column=0, columnspan=10, padx=5, pady=5, sticky=tk.W + tk.E)
-        self.button_check_id.grid(row=12, column=1, columnspan=1, padx=5, pady=5, sticky=tk.W + tk.E)
+        self.button_reservation_confirm = ttk.Button(
+            result_frame,
+            text="予約確定",
+            command=self.run_reservation_confirmation_workflow,
+            style="Primary.TButton",
+        )
+        self.button_reservation_confirm.grid(row=0, column=1, sticky=tk.EW, padx=(4, 0))
 
-    # Helper methods for driver/login/logout/navigation
+        self.button_reservation_status = ttk.Button(
+            other_frame,
+            text="予約状況確認(キャンセル)",
+            command=self.run_reservation_status_workflow,
+            style="Secondary.TButton",
+        )
+        self.button_reservation_status.grid(row=0, column=0, sticky=tk.EW)
+
+        self.button_reservation_status_check_only = ttk.Button(
+            other_frame,
+            text="予約状況確認(キャンセルなし)",
+            command=self.run_reservation_status_check_only_workflow,
+            style="Secondary.TButton",
+        )
+        self.button_reservation_status_check_only.grid(
+            row=0, column=1, sticky=tk.EW, padx=(4, 0)
+        )
+
+        self.button_fftc_wiki_text = ttk.Button(
+            other_frame,
+            text="FFTC wiki用文字作成",
+            command=self.run_fftc_wiki_text_workflow,
+            style="Secondary.TButton",
+        )
+        self.button_fftc_wiki_text.grid(
+            row=1, column=0, columnspan=2, sticky=tk.EW, pady=(8, 0)
+        )
+
+        settings_frame = ttk.LabelFrame(
+            container, text="設定", padding=8, style="Settings.TLabelframe"
+        )
+        settings_frame.grid(row=6, column=0, columnspan=3, sticky=tk.EW, pady=(0, 16))
+        self.button_settings = ttk.Button(
+            settings_frame,
+            text="設定を開く",
+            command=self.open_settings_dialog,
+            style="Settings.TButton",
+        )
+        self.button_settings.grid(row=0, column=0, sticky=tk.W)
+
+        log_frame = ttk.LabelFrame(container, text="実行ログ", padding=8, style="Settings.TLabelframe")
+        log_frame.grid(row=7, column=0, columnspan=3, sticky=tk.NSEW)
+        log_frame.columnconfigure(0, weight=1)
+        log_frame.rowconfigure(0, weight=1)
+        container.rowconfigure(7, weight=1)
+
+        self.log_text = scrolledtext.ScrolledText(
+            log_frame,
+            wrap=tk.WORD,
+            height=12,
+            state=tk.DISABLED,
+            background="#102C3E",
+            foreground="#E6F3E9",
+            insertbackground="#E6F3E9",
+            relief=tk.FLAT,
+            font=("Menlo", 10),
+        )
+        self.log_text.grid(row=0, column=0, columnspan=2, sticky=tk.NSEW)
+
+        ttk.Button(log_frame, text="ログ保存", command=self.save_log, style="Settings.TButton").grid(
+            row=1, column=0, sticky=tk.W, pady=(8, 0)
+        )
+        ttk.Button(log_frame, text="ログクリア", command=self.clear_log, style="Settings.TButton").grid(
+            row=1, column=1, sticky=tk.E, pady=(8, 0)
+        )
+
+    def _install_log_handler(self):
+        self.gui_log_handler = GuiLogHandler(self._append_log_line)
+        logging.getLogger().addHandler(self.gui_log_handler)
+
+    def _append_log_line(self, line):
+        def write():
+            self.log_text.configure(state=tk.NORMAL)
+            self.log_text.insert(tk.END, line + "\n")
+            self.log_text.see(tk.END)
+            self.log_text.configure(state=tk.DISABLED)
+
+        self.after(0, write)
+
+    def _log_message(self, message, level="INFO"):
+        self._append_log_line(
+            f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} [{level}] {message}"
+        )
+
+    def clear_log(self):
+        self.log_text.configure(state=tk.NORMAL)
+        self.log_text.delete("1.0", tk.END)
+        self.log_text.configure(state=tk.DISABLED)
+
+    def save_log(self):
+        target = filedialog.asksaveasfilename(
+            title="ログ保存",
+            defaultextension=".log",
+            filetypes=[("ログ", "*.log"), ("テキスト", "*.txt"), ("すべてのファイル", "*.*")],
+            initialfile=f"court_reserv_gui_{datetime.datetime.now():%Y%m%d_%H%M%S}.log",
+        )
+        if not target:
+            return
+        Path(target).write_text(self.log_text.get("1.0", tk.END), encoding="utf-8")
+        self._log_message(f"ログを保存しました: {target}")
+
+    def browse_id_csv(self):
+        path = filedialog.askopenfilename(
+            title="ID CSV を選択",
+            filetypes=[("CSV", "*.csv"), ("すべてのファイル", "*.*")],
+        )
+        if path:
+            self.id_csv_var.set(path)
+
+    def browse_preferences(self):
+        path = filedialog.askopenfilename(
+            title="設定YAML を選択",
+            filetypes=[("YAML/JSON", "*.yaml *.yml *.json"), ("すべてのファイル", "*.*")],
+        )
+        if path:
+            self.preferences_var.set(path)
+
+    def browse_lottery_application_check_output_dir(self):
+        path = filedialog.askdirectory(title="抽選申込み状況CSV 出力先フォルダを選択")
+        if path:
+            self.lottery_application_check_output_dir_var.set(path)
+
+    def browse_fftc_wiki_csv(self):
+        path = filedialog.askopenfilename(
+            title="FFTC wiki用の予約確定済みCSVを選択",
+            filetypes=[("CSV", "*.csv"), ("すべてのファイル", "*.*")],
+        )
+        if path:
+            self.fftc_wiki_csv_var.set(path)
+
+    def _run_in_background(self, label, func):
+        if self.worker_thread and self.worker_thread.is_alive():
+            self._threadsafe_show_info("実行中", "他のWorkflowが実行中です。完了を待ってください。")
+            return
+        self._set_action_state(tk.DISABLED)
+
+        def runner():
+            stdout_writer = GuiStreamWriter(self._append_log_line, level="INFO")
+            stderr_writer = GuiStreamWriter(self._append_log_line, level="ERROR")
+            try:
+                self._log_message(f"{label} を開始しました。")
+                with contextlib.redirect_stdout(stdout_writer), contextlib.redirect_stderr(
+                    stderr_writer
+                ):
+                    func()
+                self._log_message(f"{label} が完了しました。")
+            except Exception:
+                self.logger.exception("%s failed", label)
+            finally:
+                stdout_writer.flush()
+                stderr_writer.flush()
+                self.after(0, lambda: self._set_action_state(tk.NORMAL))
+                self._save_last_settings()
+
+        self.worker_thread = threading.Thread(target=runner, daemon=True)
+        self.worker_thread.start()
+
+    def _set_action_state(self, state):
+        for button in (
+            self.button_auto_lottery,
+            self.button_lottery_check,
+            self.button_lottery_result,
+            self.button_reservation_confirm,
+            self.button_reservation_status,
+            self.button_settings,
+        ):
+            button.configure(state=state)
+
+    def _call_on_main_thread(self, func, *args, **kwargs):
+        if threading.current_thread() is threading.main_thread():
+            return func(*args, **kwargs)
+        box = {}
+        event = threading.Event()
+
+        def callback():
+            try:
+                box["result"] = func(*args, **kwargs)
+            except Exception as exc:
+                box["error"] = exc
+            finally:
+                event.set()
+
+        self.after(0, callback)
+        event.wait()
+        if "error" in box:
+            raise box["error"]
+        return box.get("result")
+
+    def _threadsafe_show_info(self, title, message):
+        return self._call_on_main_thread(self._show_info_on_top, title, message)
+
+    def _threadsafe_ask_yes_no(self, title, message):
+        return self._call_on_main_thread(self._ask_yes_no_on_top, title, message)
+
+    def _run_messagebox_on_top(self, messagebox_func, title, message):
+        previous_topmost = self.master.attributes("-topmost")
+        try:
+            self.master.attributes("-topmost", True)
+            self.master.lift()
+            self.master.focus_force()
+            return messagebox_func(title, message, parent=self.master)
+        finally:
+            self.master.attributes("-topmost", previous_topmost)
+
+    def _show_info_on_top(self, title, message):
+        return self._run_messagebox_on_top(messagebox.showinfo, title, message)
+
+    def _ask_yes_no_on_top(self, title, message):
+        return self._run_messagebox_on_top(messagebox.askyesno, title, message)
+
+    def _ensure_preferences_path(self):
+        path = self.preferences_var.get().strip()
+        if path:
+            return Path(path)
+        return self.repo_root / "config" / "preferences.example.yaml"
+
+    def _load_current_preference(self):
+        pref_path = self._ensure_preferences_path()
+        return load_reservation_preference(pref_path)
+
+    def _resolve_id_csv_for_execution(self):
+        path = self.id_csv_var.get().strip()
+        if not path:
+            return None
+        if not Path(path).exists():
+            raise FileNotFoundError(f"ID CSV が見つかりません: {path}")
+        return path
+
+    def _resolve_fftc_wiki_csv_for_execution(self):
+        path = self.fftc_wiki_csv_var.get().strip()
+        if not path:
+            raise FileNotFoundError("FFTC wiki用CSVが指定されていません")
+        if not Path(path).exists():
+            raise FileNotFoundError(f"FFTC wiki用CSVが見つかりません: {path}")
+        return path
+
+    def _load_last_settings(self):
+        local = configparser.ConfigParser()
+        if self.local_config_path.exists():
+            local.read(self.local_config_path, encoding="utf-8")
+        self.id_csv_var.set(
+            local.get(
+                "GUI",
+                "last_id_csv",
+                fallback="",
+            )
+        )
+        self.preferences_var.set(
+            local.get(
+                "GUI",
+                "last_preferences",
+                fallback=str(self.repo_root / "config" / "preferences.example.yaml"),
+            )
+        )
+        self.lottery_application_check_output_dir_var.set(
+            local.get("GUI", "last_lottery_application_check_output_dir", fallback="")
+        )
+        self.fftc_wiki_csv_var.set(
+            local.get("GUI", "last_fftc_wiki_csv", fallback="")
+        )
+        self.window_geometry = local.get(
+            "GUI",
+            "last_window_geometry",
+            fallback=self.window_geometry,
+        )
+
+    def _save_last_settings(self):
+        local = configparser.ConfigParser()
+        if self.local_config_path.exists():
+            local.read(self.local_config_path, encoding="utf-8")
+        if not local.has_section("GUI"):
+            local.add_section("GUI")
+        local.set("GUI", "last_id_csv", self.id_csv_var.get().strip())
+        local.set("GUI", "last_preferences", self.preferences_var.get().strip())
+        local.set(
+            "GUI",
+            "last_lottery_application_check_output_dir",
+            self.lottery_application_check_output_dir_var.get().strip(),
+        )
+        local.set("GUI", "last_fftc_wiki_csv", self.fftc_wiki_csv_var.get().strip())
+        local.set("GUI", "last_window_geometry", self.master.geometry())
+        with self.local_config_path.open("w", encoding="utf-8") as fh:
+            local.write(fh)
+
+    def on_close(self):
+        self._save_last_settings()
+        self.master.destroy()
+
+    def run_lottery_entry_workflow(self):
+        self._run_in_background("抽選申込みワークフロー", self._execute_lottery_entry_workflow)
+
+    def run_lottery_application_check_workflow(self):
+        self._run_in_background(
+            "抽選申込み状況確認ワークフロー",
+            self._execute_lottery_application_check_workflow,
+        )
+
+    def run_fftc_wiki_text_workflow(self):
+        self._run_in_background(
+            "FFTC wiki用文字作成ワークフロー",
+            self._execute_fftc_wiki_text_workflow,
+        )
+
+    def _execute_fftc_wiki_text_workflow(self):
+        csv_path = self._resolve_fftc_wiki_csv_for_execution()
+        wiki_text = self.fftc_wiki_text_service.build_from_csv(csv_path)
+        if not wiki_text:
+            self._log_message(
+                f"FFTC wiki用文字を作成できる予約日時がありません: {csv_path}",
+                level="WARNING",
+            )
+            return
+        self._log_message(f"FFTC wiki用文字:\n{wiki_text}")
+
+    def _execute_lottery_entry_workflow(self):
+        preference = self._load_current_preference()
+        result = self.lottery_entry_workflow_service.run(
+            preference=preference,
+            id_csv=self._resolve_id_csv_for_execution(),
+            max_select=preference.lottery_max_entries_per_account or 2,
+            display_result_callback=self._log_lottery_entry_preview,
+            confirm_submit_callback=self._confirm_submission_from_gui,
+            output_dir=get_output_base_path() / "lottery_automation",
+        )
+        self.lottery_entry_workflow_service.print_result(result)
+        result_path = self.lottery_entry_workflow_service.save_result(
+            result,
+            get_output_base_path() / "lottery_automation",
+        )
+        self._log_message(f"ワークフロー結果を保存しました: {result_path}")
+
+    def _execute_lottery_application_check_workflow(self):
+        id_csv = self._resolve_id_csv_for_execution()
+        result = self.lottery_application_check_workflow_service.run(
+            id_csv=id_csv,
+        )
+        self.lottery_application_check_workflow_service.print_result(result)
+        output_dir = self._resolve_lottery_application_check_output_dir(id_csv=id_csv)
+        csv_path = self.lottery_application_check_workflow_service.save_result(
+            result,
+            output_dir=output_dir,
+            id_csv=id_csv,
+        )
+        self._log_message(f"申込み状況CSVを保存しました: {csv_path}")
+
+    def _resolve_lottery_application_check_output_dir(self, id_csv=None):
+        path = self.lottery_application_check_output_dir_var.get().strip()
+        if path:
+            return Path(path)
+        if id_csv:
+            return Path(id_csv).resolve().parent
+        return get_output_base_path() / "lottery_automation"
+
+    def _confirm_submission_from_gui(self, result, entry_result):
+        preference = self._load_current_preference()
+        if preference.lottery_dry_run:
+            self._log_message("ドライランが有効なため、送信は行いません。")
+            return "dry-run"
+        slot = (entry_result or {}).get("slot", {})
+        if not slot:
+            return ""
+        account_line = result.get("masked_user_id", "")
+        if result.get("account_label"):
+            account_line = f"{account_line} ({result.get('account_label')})"
+        message_lines = [
+            "今回申し込む枠:",
+            "",
+            f"ID / アカウント: {account_line}",
+            f"申込み番号: {entry_result.get('apply_label', '')}",
+            f"日付: {slot.get('date', '')}",
+            f"曜日: {slot.get('weekday', '')}",
+            f"時間帯: {slot.get('time_range', '')}",
+            f"施設名: {slot.get('facility', '')}",
+            f"現在申込数: {slot.get('current_entry_count', '')}",
+            "",
+        ]
+        message_lines.append("送信しますか？")
+        answer = self._threadsafe_ask_yes_no(
+            "抽選申込み確認",
+            "\n".join(message_lines),
+        )
+        return "yes" if answer else ""
+
+    def _log_lottery_entry_preview(self, account_result):
+        self._log_message(
+            "アカウント={account} 状態={status} 取得枠数={count}".format(
+                account=account_result.get("masked_user_id"),
+                status=account_result.get("status"),
+                count=len(account_result.get("collected_slots", [])),
+            )
+        )
+        for slot in account_result.get("planned_slots", []):
+            self._log_message(
+                "申込み予定: {date} {time_range} 施設={facility} 現在申込数={applied}".format(
+                    date=slot.get("date"),
+                    time_range=slot.get("time_range"),
+                    facility=" ".join(
+                        part
+                        for part in (
+                            slot.get("park_name", ""),
+                            slot.get("facility_name", ""),
+                        )
+                        if part
+                    ).strip(),
+                    applied=slot.get("applied_count"),
+                )
+            )
+        for warning in account_result.get("missing_slots", []):
+            self._log_message(
+                "警告: {date} {time_range} 施設={facility} {warning_text}".format(
+                    date=warning.get("date"),
+                    time_range=warning.get("time_range"),
+                    facility=warning.get("facility"),
+                    warning_text=warning.get("warning"),
+                ),
+                level="WARNING",
+            )
+
+    def run_lottery_result_workflow(self):
+        self._run_in_background("抽選結果確認ワークフロー", self._execute_lottery_result_workflow)
+
+    def _execute_lottery_result_workflow(self):
+        id_csv = self._resolve_id_csv_for_execution()
+        result = self.lottery_result_workflow_service.run(
+            id_csv=id_csv
+        )
+        self.lottery_result_workflow_service.print_result(result)
+        output_dir = get_output_base_path() / "lottery_automation"
+        json_path, csv_path = self.lottery_result_workflow_service.save_result(
+            result,
+            output_dir,
+            id_csv=id_csv,
+        )
+        self._log_message(f"結果JSONを保存しました: {json_path}")
+        self._log_message(f"結果CSVを保存しました: {csv_path}")
+
+        won_entries = self.lottery_result_workflow_service.get_won_account_entries(
+            result
+        )
+        if id_csv:
+            won_csv_path = self.lottery_result_workflow_service.build_won_accounts_csv_path(
+                id_csv
+            )
+            self.lottery_result_workflow_service.save_won_accounts_csv(
+                result,
+                id_csv,
+                won_csv_path,
+            )
+            self._log_message(f"当選ID CSVを保存しました: {won_csv_path}")
+        else:
+            won_csv_path = None
+
+        display_lines = [
+            "当選ID一覧:",
+            "",
+        ]
+        if won_entries:
+            display_lines.extend(
+                f"ID:{entry['user_id']} 氏名:{entry['account_label']} "
+                f"日時:{entry['date']} {entry['time_range']}"
+                for entry in won_entries
+            )
+        else:
+            display_lines.append("当選はありません。")
+        display_lines.extend(["", "予約確定へ進みますか？"])
+        proceed = self._threadsafe_ask_yes_no(
+            "予約確定への移行",
+            "\n".join(display_lines),
+        )
+        if not proceed or not won_entries:
+            return
+
+        if not id_csv:
+            self._log_message(
+                "入力CSVが指定されていないため、当選ID CSVは作成せず予約確定へ進みます。"
+            )
+            self._execute_reservation_confirmation_workflow()
+            return
+
+        self._execute_reservation_confirmation_workflow(
+            id_csv=won_csv_path,
+            lottery_result=result,
+        )
+
+    def run_reservation_confirmation_workflow(self):
+        self._run_in_background(
+            "予約確定補助ワークフロー",
+            self._execute_reservation_confirmation_workflow,
+        )
+
+    def run_reservation_status_workflow(self):
+        self._run_in_background(
+            "予約状況確認ワークフロー",
+            lambda: self._execute_reservation_status_workflow(allow_cancel=True),
+        )
+
+    def run_reservation_status_check_only_workflow(self):
+        self._run_in_background(
+            "予約状況確認（キャンセルなし）ワークフロー",
+            lambda: self._execute_reservation_status_workflow(allow_cancel=False),
+        )
+
+    def _execute_reservation_status_workflow(self, allow_cancel=True):
+        input_csv_path = self._resolve_id_csv_for_execution()
+        accounts = self.id_manager_service.load_accounts(input_csv_path)
+        account_list = [
+            {"user_id": user_id, "password": values[2], "account_label": values[0]}
+            for user_id, values in accounts.items()
+            if len(values) >= 3 and values[2]
+        ]
+        result = self.reservation_status_workflow_service.run(
+            account_list,
+            decision_callback=(self._reservation_status_decision if allow_cancel else None),
+        )
+        for user_id, status in result.items():
+            self._log_message(
+                f"ID:{self._mask_user_id_for_log(user_id)} 予約状況確認: {status.get('status')}"
+            )
+            if status.get("cancel_decision") == "manual_cancel":
+                account_label = status.get("account_label", "")
+                label_text = f" 氏名:{account_label}" if account_label else ""
+                self._log_message(
+                    f"キャンセル対象 ID:{self._mask_user_id_for_log(user_id)}{label_text}"
+                )
+        if allow_cancel:
+            verification = self.reservation_status_workflow_service.verify_accounts(
+                account_list
+            )
+        else:
+            verification = (
+                self.reservation_status_workflow_service.build_verification_results(
+                    result
+                )
+            )
+        no_reservation_ids = []
+        reservation_details = {}
+        for user_id, status in result.items():
+            verification_status = verification.get(user_id, {})
+            status["verification"] = verification_status
+            reservation_details[user_id] = verification_status.get(
+                "reservation_page", {}
+            ).get("reservations", [])
+            if (
+                verification_status.get("status") in {"verified", "no_reservation_or_alert"}
+                and verification_status.get("reservation_count") == 0
+            ):
+                no_reservation_ids.append(user_id)
+            elif status.get("cancel_decision") == "manual_cancel":
+                self._log_message(
+                    f"キャンセル未確認 ID:{self._mask_user_id_for_log(user_id)} "
+                    f"予約件数:{verification_status.get('reservation_count', '不明')}"
+                )
+        output_path = Path(input_csv_path).with_name(
+            f"reservation_check_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv"
+        )
+        self.reservation_status_workflow_service.save_remaining_accounts_csv(
+            input_csv_path,
+            no_reservation_ids,
+            output_path,
+            reservation_details=reservation_details,
+        )
+        self._log_message(
+            f"予約確認後CSVを出力しました: {output_path}（予約なし確認済み {len(no_reservation_ids)} 件）"
+        )
+
+    def _reservation_status_decision(self, user_id, result):
+        account_label = result.get("account_label", "")
+        name_text = f"氏名: {account_label}\n" if account_label else ""
+        should_cancel = self._threadsafe_ask_yes_no(
+            "キャンセル確認",
+            f"ID:{self._mask_user_id_for_log(user_id)}\n"
+            f"{name_text}"
+            "の予約確認画面を開きました。\n\n"
+            "キャンセルする場合は「Yes」を押した後、ブラウザ画面の\n"
+            "「キャンセル」ボタンをユーザー自身で押してください。\n\n"
+            "キャンセルしない場合は「No」を押して次のIDへ進みます。",
+        )
+        if should_cancel:
+            self._threadsafe_show_info(
+                "手動キャンセル",
+                "ブラウザ画面の「キャンセル」ボタンを押してください。\n"
+                "キャンセル操作が完了したら、このポップアップの「OK」を押して\n"
+                "次のIDへ進みます。",
+            )
+        return should_cancel
+
+    @staticmethod
+    def _mask_user_id_for_log(user_id):
+        value = str(user_id)
+        return value[:2] + "****" + value[-2:] if len(value) > 4 else "****"
+
+    def _execute_reservation_confirmation_workflow(self, id_csv=None, lottery_result=None):
+        result = self.reservation_confirmation_workflow_service.run(
+            id_csv=id_csv or self._resolve_id_csv_for_execution(),
+            lottery_result=lottery_result,
+            decision_callback=self._reservation_confirmation_decision,
+        )
+        self.reservation_confirmation_workflow_service.print_result(result)
+        output_dir = get_output_base_path() / "lottery_automation"
+        json_path = self.reservation_confirmation_workflow_service.save_result(
+            result,
+            output_dir,
+        )
+        self._log_message(f"予約確定補助の結果を保存しました: {json_path}")
+        if id_csv:
+            confirmed_csv_path = (
+                self.reservation_confirmation_workflow_service
+                .build_confirmed_accounts_csv_path(id_csv)
+            )
+            self.reservation_confirmation_workflow_service.save_confirmed_accounts_csv(
+                result,
+                id_csv,
+                confirmed_csv_path,
+            )
+            self._log_message(f"予約確定済みID CSVを保存しました: {confirmed_csv_path}")
+
+    def _reservation_confirmation_decision(self, account):
+        account_label = account.get("account_label", "")
+        name_text = f"氏名:{account_label}\n" if account_label else ""
+        answer = self._threadsafe_ask_yes_no(
+            "予約確定確認",
+            f"ID:{account['user_id']}\n"
+            f"{name_text}の予約確定画面を開きました。\n\n"
+            "このIDの予約確定を実行しますか？",
+        )
+        return "yes" if answer else ""
+
+    def open_settings_dialog(self):
+        pref_path = self._ensure_preferences_path()
+        existing_data = {}
+        if pref_path.exists():
+            try:
+                existing_data = load_preferences_data(pref_path)
+            except Exception:
+                existing_data = {}
+        lottery_data = existing_data.get("lottery", {})
+        if not isinstance(lottery_data, dict):
+            lottery_data = {}
+
+        dialog = tk.Toplevel(self.master)
+        dialog.title("設定")
+        screen_height = dialog.winfo_screenheight()
+        dialog_height = min(680, max(600, screen_height - 120))
+        dialog.geometry(f"920x{dialog_height}")
+        dialog.minsize(900, 600)
+        dialog.transient(self.master)
+        dialog.grab_set()
+        dialog.columnconfigure(0, weight=1)
+        dialog.rowconfigure(3, weight=1)
+        dialog.rowconfigure(4, weight=0)
+
+        id_csv_var = tk.StringVar(value=self.id_csv_var.get())
+        preferences_var = tk.StringVar(value=str(pref_path))
+        weekdays_var = tk.StringVar(
+            value=", ".join(lottery_data.get("target_weekdays", ["土"]))
+        )
+        search_weeks_var = tk.IntVar(value=int(lottery_data.get("search_weeks", 8)))
+        max_entries_var = tk.IntVar(
+            value=int(lottery_data.get("max_entries_per_account", 2))
+        )
+        dry_run_var = tk.BooleanVar(value=bool(lottery_data.get("dry_run", True)))
+        manual_final_submit_var = tk.BooleanVar(
+            value=bool(lottery_data.get("manual_final_submit", False))
+        )
+        manual_preconfirm_submit_var = tk.BooleanVar(
+            value=bool(lottery_data.get("manual_preconfirm_submit", False))
+        )
+        reuse_browser_session_var = tk.BooleanVar(
+            value=bool(lottery_data.get("reuse_browser_session", False))
+        )
+
+        file_frame = ttk.LabelFrame(dialog, text="ファイル", padding=12)
+        file_frame.grid(row=0, column=0, sticky=tk.EW, padx=12, pady=(12, 8))
+        file_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(file_frame, text="ID CSVファイル").grid(
+            row=0, column=0, sticky=tk.W, pady=4
+        )
+        ttk.Entry(file_frame, textvariable=id_csv_var).grid(
+            row=0, column=1, sticky=tk.EW, padx=8, pady=4
+        )
+        ttk.Button(
+            file_frame,
+            text="参照",
+            command=lambda: self._browse_into_var(
+                id_csv_var,
+                [("CSV", "*.csv"), ("すべてのファイル", "*.*")],
+            ),
+        ).grid(row=0, column=2, pady=4)
+
+        ttk.Label(file_frame, text="設定YAML").grid(
+            row=1, column=0, sticky=tk.W, pady=4
+        )
+        ttk.Entry(file_frame, textvariable=preferences_var).grid(
+            row=1, column=1, sticky=tk.EW, padx=8, pady=4
+        )
+        ttk.Button(
+            file_frame,
+            text="参照",
+            command=lambda: self._browse_into_var(
+                preferences_var,
+                [("YAML/JSON", "*.yaml *.yml *.json"), ("すべてのファイル", "*.*")],
+            ),
+        ).grid(row=1, column=2, pady=4)
+
+        lottery_frame = ttk.LabelFrame(dialog, text="抽選設定", padding=12)
+        lottery_frame.grid(row=1, column=0, sticky=tk.EW, padx=12, pady=8)
+        for index in range(4):
+            lottery_frame.columnconfigure(index, weight=1)
+        ttk.Label(lottery_frame, text="対象曜日").grid(
+            row=0, column=0, sticky=tk.W
+        )
+        ttk.Entry(lottery_frame, textvariable=weekdays_var).grid(
+            row=0, column=1, sticky=tk.EW, padx=8
+        )
+        ttk.Label(lottery_frame, text="探索週数").grid(row=0, column=2, sticky=tk.W)
+        ttk.Spinbox(
+            lottery_frame,
+            from_=1,
+            to=12,
+            textvariable=search_weeks_var,
+            width=6,
+        ).grid(row=0, column=3, sticky=tk.W)
+        ttk.Label(lottery_frame, text="1IDあたり最大申込み数").grid(
+            row=1, column=0, sticky=tk.W, pady=(8, 0)
+        )
+        ttk.Spinbox(
+            lottery_frame,
+            from_=1,
+            to=2,
+            textvariable=max_entries_var,
+            width=6,
+        ).grid(row=1, column=1, sticky=tk.W, padx=8, pady=(8, 0))
+        ttk.Checkbutton(lottery_frame, text="ドライラン", variable=dry_run_var).grid(
+            row=1, column=2, columnspan=2, sticky=tk.W, pady=(8, 0)
+        )
+        ttk.Checkbutton(
+            lottery_frame,
+            text="最終申込みを手動にする（切り分け用）",
+            variable=manual_final_submit_var,
+        ).grid(row=2, column=0, columnspan=4, sticky=tk.W, pady=(8, 0))
+        ttk.Checkbutton(
+            lottery_frame,
+            text="申込みボタン前を手動にする（切り分け用）",
+            variable=manual_preconfirm_submit_var,
+        ).grid(row=3, column=0, columnspan=4, sticky=tk.W, pady=(8, 0))
+        ttk.Checkbutton(
+            lottery_frame,
+            text="ブラウザ再利用（アカウント間）",
+            variable=reuse_browser_session_var,
+        ).grid(row=4, column=0, columnspan=4, sticky=tk.W, pady=(8, 0))
+
+        default_tree = self._build_entry_tree(dialog, "共通申込み枠", row=2)
+        overrides_tree = self._build_override_tree(dialog, row=3)
+
+        for entry in lottery_data.get("default_entries", []):
+            default_tree.insert(
+                "",
+                tk.END,
+                values=(
+                    entry.get("facility", ""),
+                    entry.get("date", ""),
+                    entry.get("time_range", ""),
+                ),
+            )
+
+        raw_overrides = lottery_data.get("account_overrides", {})
+        if isinstance(raw_overrides, dict):
+            for account_id, override_data in raw_overrides.items():
+                entries = override_data.get("entries", []) if isinstance(override_data, dict) else []
+                for entry in entries:
+                    overrides_tree.insert(
+                        "",
+                        tk.END,
+                        values=(
+                            account_id,
+                            entry.get("facility", ""),
+                            entry.get("date", ""),
+                            entry.get("time_range", ""),
+                        ),
+                    )
+
+        self._attach_entry_buttons(
+            dialog,
+            default_tree,
+            row=2,
+            add_command=lambda: self._add_default_entry(default_tree),
+            edit_command=lambda: self._edit_default_entry(default_tree),
+            remove_command=lambda: self._remove_selected_tree_item(default_tree),
+        )
+        self._attach_entry_buttons(
+            dialog,
+            overrides_tree,
+            row=3,
+            add_command=lambda: self._add_override_entry(overrides_tree),
+            edit_command=lambda: self._edit_override_entry(overrides_tree),
+            remove_command=lambda: self._remove_selected_tree_item(overrides_tree),
+        )
+
+        button_frame = ttk.Frame(dialog, padding=12)
+        button_frame.grid(row=4, column=0, sticky=tk.EW)
+        button_frame.columnconfigure(0, weight=1)
+
+        def on_save():
+            updated_data = existing_data if isinstance(existing_data, dict) else {}
+            lottery = updated_data.setdefault("lottery", {})
+            weekdays = [
+                item.strip()
+                for item in weekdays_var.get().replace("、", ",").split(",")
+                if item.strip()
+            ]
+            lottery["target_weekdays"] = weekdays or ["土"]
+            lottery["search_weeks"] = int(search_weeks_var.get() or 8)
+            lottery["max_entries_per_account"] = int(max_entries_var.get() or 2)
+            lottery["dry_run"] = bool(dry_run_var.get())
+            lottery["manual_final_submit"] = bool(manual_final_submit_var.get())
+            lottery["manual_preconfirm_submit"] = bool(manual_preconfirm_submit_var.get())
+            lottery["reuse_browser_session"] = bool(reuse_browser_session_var.get())
+            lottery["default_entries"] = [
+                {
+                    "facility": values[0],
+                    "date": values[1],
+                    "time_range": values[2],
+                }
+                for values in self._tree_values(default_tree)
+            ]
+
+            overrides = {}
+            for values in self._tree_values(overrides_tree):
+                account_id, facility, date, time_range = values
+                overrides.setdefault(account_id, {"entries": []})
+                overrides[account_id]["entries"].append(
+                    {
+                        "facility": facility,
+                        "date": date,
+                        "time_range": time_range,
+                    }
+                )
+            lottery["account_overrides"] = overrides
+
+            save_preferences_data(preferences_var.get().strip(), updated_data)
+            self.id_csv_var.set(id_csv_var.get().strip())
+            self.preferences_var.set(preferences_var.get().strip())
+            self._save_last_settings()
+            self._log_message(f"設定YAMLを保存しました: {preferences_var.get().strip()}")
+            dialog.destroy()
+
+        ttk.Button(button_frame, text="保存", command=on_save).grid(
+            row=0, column=1, sticky=tk.E, padx=(0, 8)
+        )
+        ttk.Button(button_frame, text="キャンセル", command=dialog.destroy).grid(
+            row=0, column=2, sticky=tk.E
+        )
+
+        self.master.wait_window(dialog)
+
+    def _browse_into_var(self, variable, filetypes):
+        path = filedialog.askopenfilename(filetypes=filetypes)
+        if path:
+            variable.set(path)
+
+    def _build_entry_tree(self, master, title, row):
+        frame = ttk.LabelFrame(master, text=title, padding=12)
+        frame.grid(row=row, column=0, sticky=tk.NSEW, padx=12, pady=8)
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(0, weight=1)
+        master.rowconfigure(row, weight=1)
+        tree = ttk.Treeview(
+            frame,
+            columns=("facility", "date", "time_range"),
+            show="headings",
+            height=3,
+        )
+        for key, label, width in (
+            ("facility", "施設名", 240),
+            ("date", "日付", 120),
+            ("time_range", "時間帯", 120),
+        ):
+            tree.heading(key, text=label)
+            tree.column(key, width=width, anchor=tk.W)
+        tree.grid(row=0, column=0, sticky=tk.NSEW)
+        tree._button_parent = frame
+        return tree
+
+    def _build_override_tree(self, master, row):
+        frame = ttk.LabelFrame(master, text="ID別上書き設定", padding=12)
+        frame.grid(row=row, column=0, sticky=tk.NSEW, padx=12, pady=8)
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(0, weight=1)
+        master.rowconfigure(row, weight=1)
+        tree = ttk.Treeview(
+            frame,
+            columns=("account_id", "facility", "date", "time_range"),
+            show="headings",
+            height=4,
+        )
+        for key, label, width in (
+            ("account_id", "ID", 120),
+            ("facility", "施設名", 220),
+            ("date", "日付", 120),
+            ("time_range", "時間帯", 120),
+        ):
+            tree.heading(key, text=label)
+            tree.column(key, width=width, anchor=tk.W)
+        tree.grid(row=0, column=0, sticky=tk.NSEW)
+        tree._button_parent = frame
+        return tree
+
+    def _attach_entry_buttons(self, master, tree, row, add_command, edit_command, remove_command):
+        button_parent = getattr(tree, "_button_parent", master)
+        button_frame = ttk.Frame(button_parent)
+        button_frame.grid(row=1, column=0, sticky=tk.E, pady=(8, 0))
+        ttk.Button(button_frame, text="追加", command=add_command).pack(
+            side=tk.LEFT, padx=4
+        )
+        ttk.Button(button_frame, text="編集", command=edit_command).pack(
+            side=tk.LEFT, padx=4
+        )
+        ttk.Button(button_frame, text="削除", command=remove_command).pack(
+            side=tk.LEFT, padx=4
+        )
+
+    def _add_default_entry(self, tree):
+        values = self._prompt_entry_values()
+        if values:
+            tree.insert("", tk.END, values=values)
+
+    def _edit_default_entry(self, tree):
+        selected = tree.selection()
+        if not selected:
+            return
+        current = tree.item(selected[0], "values")
+        values = self._prompt_entry_values(current=current)
+        if values:
+            tree.item(selected[0], values=values)
+
+    def _add_override_entry(self, tree):
+        values = self._prompt_override_values()
+        if values:
+            tree.insert("", tk.END, values=values)
+
+    def _edit_override_entry(self, tree):
+        selected = tree.selection()
+        if not selected:
+            return
+        current = tree.item(selected[0], "values")
+        values = self._prompt_override_values(current=current)
+        if values:
+            tree.item(selected[0], values=values)
+
+    def _remove_selected_tree_item(self, tree):
+        for item in tree.selection():
+            tree.delete(item)
+
+    def _prompt_entry_values(self, current=None):
+        return self._show_entry_editor_dialog(current=current)
+
+    def _prompt_override_values(self, current=None):
+        return self._show_entry_editor_dialog(current=current, include_account=True)
+
+    def _show_entry_editor_dialog(self, current=None, include_account=False):
+        dialog = tk.Toplevel(self.master)
+        dialog.title("申込み枠の編集" if not include_account else "ID別申込み枠の編集")
+        dialog.transient(self.master)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        dialog.columnconfigure(1, weight=1)
+
+        current = current or ()
+        row = 0
+        account_var = tk.StringVar(value=current[0] if include_account and current else "")
+        if include_account:
+            ttk.Label(dialog, text="ID").grid(
+                row=row, column=0, sticky=tk.W, padx=12, pady=(12, 6)
+            )
+            ttk.Entry(dialog, textvariable=account_var, width=32).grid(
+                row=row, column=1, sticky=tk.EW, padx=(0, 12), pady=(12, 6)
+            )
+            row += 1
+
+        offset = 1 if include_account else 0
+        facility_var = tk.StringVar(value=current[offset] if len(current) > offset else "")
+        date_var = tk.StringVar(value=current[offset + 1] if len(current) > offset + 1 else "")
+        time_range_var = tk.StringVar(
+            value=current[offset + 2] if len(current) > offset + 2 else ""
+        )
+
+        ttk.Label(dialog, text="施設名").grid(
+            row=row, column=0, sticky=tk.W, padx=12, pady=6
+        )
+        ttk.Entry(dialog, textvariable=facility_var, width=40).grid(
+            row=row, column=1, sticky=tk.EW, padx=(0, 12), pady=6
+        )
+        row += 1
+
+        ttk.Label(dialog, text="日付").grid(
+            row=row, column=0, sticky=tk.W, padx=12, pady=6
+        )
+        ttk.Entry(dialog, textvariable=date_var, width=24).grid(
+            row=row, column=1, sticky=tk.EW, padx=(0, 12), pady=6
+        )
+        row += 1
+
+        ttk.Label(dialog, text="時間帯").grid(
+            row=row, column=0, sticky=tk.W, padx=12, pady=6
+        )
+        ttk.Entry(dialog, textvariable=time_range_var, width=24).grid(
+            row=row, column=1, sticky=tk.EW, padx=(0, 12), pady=6
+        )
+        row += 1
+
+        ttk.Label(
+            dialog,
+            text="日付は YYYY-MM-DD、時間帯は HH:MM-HH:MM 形式で入力してください。",
+        ).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=12, pady=(0, 8))
+        row += 1
+
+        result = {"values": None}
+
+        def on_save():
+            values = (
+                facility_var.get().strip(),
+                date_var.get().strip(),
+                time_range_var.get().strip(),
+            )
+            if include_account:
+                result["values"] = (account_var.get().strip(),) + values
+            else:
+                result["values"] = values
+            dialog.destroy()
+
+        button_frame = ttk.Frame(dialog, padding=(12, 0, 12, 12))
+        button_frame.grid(row=row, column=0, columnspan=2, sticky=tk.EW)
+        button_frame.columnconfigure(0, weight=1)
+        ttk.Button(button_frame, text="保存", command=on_save).grid(
+            row=0, column=1, padx=(0, 8)
+        )
+        ttk.Button(button_frame, text="キャンセル", command=dialog.destroy).grid(
+            row=0, column=2
+        )
+
+        self.master.wait_window(dialog)
+        return result["values"]
+
+    def _tree_values(self, tree):
+        values = []
+        for item in tree.get_children():
+            values.append(tuple(tree.item(item, "values")))
+        return values
+
+    # Compatibility helpers / legacy wrappers
     def _start_driver(self):
-        if getattr(self, 'driver', None) is None:
-            self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
+        if getattr(self, "driver", None) is None:
+            self.driver = self.browser_session.create_driver()
+
+    def _get_wait(self, timeout=10):
+        return self.browser_session.get_wait(self.driver, timeout)
 
     def _login(self, user_id, password):
-        """ログイン処理。成功するとホーム画面になるまで待つ。"""
         self._start_driver()
-        self.driver.get(config['URL']['TOP_URL'])
-        try:
-            try:
-                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
-            except JavascriptException:
-                # page may not expose doAction; continue and try locating form directly
-                pass
-
-            # try to find login fields; if not on main document, try common iframe
-            try:
-                user_el = self.driver.find_element(By.NAME, "userId")
-            except Exception:
-                try:
-                    self.driver.switch_to.frame("pawae1002")
-                    user_el = self.driver.find_element(By.NAME, "userId")
-                except Exception:
-                    logging.warning("Login form not found for user %s", user_id)
-                    try:
-                        self.driver.switch_to.default_content()
-                    except Exception:
-                        pass
-                    return False
-
-            user_el.send_keys(user_id)
-            self.driver.find_element(By.NAME, "password").send_keys(password)
-            time.sleep(0.5)
-            try:
-                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
-            except JavascriptException:
-                # fallback: try to submit by sending Enter
-                try:
-                    self.driver.find_element(By.NAME, "password").send_keys(Keys.RETURN)
-                except Exception:
-                    pass
-
-            # login may produce an alert on failure; detect and accept it
-            try:
-                WebDriverWait(self.driver, 2).until(EC.alert_is_present())
-                alert = self.driver.switch_to.alert
-                alert_text = alert.text
-                alert.accept()
-                logging.warning("ID:%s login alert: %s", user_id, alert_text)
-                return False
-            except TimeoutException:
-                # no alert -> proceed
-                # If a captcha is present, prompt the user to solve it instead of failing
-                try:
-                    if self._detect_captcha():
-                        ok = self._wait_for_captcha_solve()
-                        return bool(ok)
-                except Exception:
-                    pass
-                return True
-        except UnexpectedAlertPresentException:
-            # unexpected alert caught during commands
-            try:
-                alert = self.driver.switch_to.alert
-                alert_text = alert.text
-                alert.accept()
-                logging.warning("ID:%s unexpected alert during login: %s", user_id, alert_text)
-            except Exception:
-                pass
-            return False
+        return self.login_service.login(self.driver, user_id, password)
 
     def _logout(self):
         try:
-            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
+            self.navigation_service.logout(self.driver)
         except Exception:
             pass
 
     def _detect_captcha(self):
-        """Detect whether a reCAPTCHA-like widget appears on the current page."""
-        if not getattr(self, 'driver', None):
-            return False
-        try:
-            # look for iframe or div indicators
-            els = self.driver.find_elements(By.CSS_SELECTOR, "iframe[src*='recaptcha'], div.g-recaptcha")
-            if els and len(els) > 0:
-                return True
-            ps = self.driver.page_source
-            if 'g-recaptcha' in ps or 'recaptcha' in ps:
-                return True
-        except Exception:
-            return False
-        return False
+        return self.login_service.detect_captcha(self.driver)
 
     def _wait_for_captcha_solve(self, timeout_minutes=5):
-        """Prompt user to solve captcha manually and wait until it's gone (or cancelled).
-        Returns True if captcha cleared, False if cancelled/timed-out.
-        """
-        try:
-            messagebox.showinfo('reCAPTCHA 検出', 'ページ上にreCAPTCHAが検出されました。ブラウザで手動で認証してください。完了したら「OK」を押してください。')
-        except Exception:
-            print('reCAPTCHA detected: please solve it manually in the browser and then continue.')
-        start = time.time()
-        timeout = timeout_minutes * 60
-        while True:
-            try:
-                if not self._detect_captcha():
-                    return True
-            except Exception:
-                return False
-            if time.time() - start > timeout:
-                try:
-                    cont = messagebox.askyesno('reCAPTCHA まだ有効', 'reCAPTCHAがまだ残っています。続行して再試行しますか？(OK=再確認 / キャンセル=中断)')
-                except Exception:
-                    cont = False
-                if not cont:
-                    return False
-                start = time.time()
-            time.sleep(1)
+        return self.login_service.wait_for_manual_captcha(
+            self.driver, timeout_minutes=timeout_minutes
+        )
 
     def _navigate_to_lottery_entry(self):
-        # 抽選申し込み画面まで移動し、種目と公園を選択する共通処理
-        self.driver.execute_script("javascript:doAction(document.form1, gLotWOpeLotSearchAction);")
-        # 種目選択（テニス（人工芝））
-        self.driver.execute_script("javascript:doLotEntry('130');")
-        time.sleep(1)
-        Select(self.driver.find_element(By.ID, "bname")).select_by_value("1301270")
-        self.driver.execute_script("changeBname(document.form1);")
-        wait = WebDriverWait(self.driver, 10)
-        wait.until(lambda d: any(
-            opt.get_attribute("value") == "12700020"
-            for opt in Select(d.find_element(By.ID, "iname")).options
-        ))
-        Select(self.driver.find_element(By.ID, "iname")).select_by_value("12700020")
+        self.navigation_service.go_to_lottery_entry(self.driver)
+        self.navigation_service.select_lottery_tennis_park(self.driver)
 
     def collect_all_available_slots(self, weeks_limit=8, only_weekday=None):
-        """
-        抽選申込み画面の週毎ページを巡回して、見つかる全ての空き日時を収集してCSVに保存する。
-        戻り値: list of slot strings
-        """
-        slots = []
-        try:
-            # helper to extract date+time combos from html text
-            def extract_from_html(html_text):
-                found = set()
-                # look for patterns like "6月10日 ... 10時30分" or "6月10日"
-                for m in re.findall(r"\d{1,2}月\d{1,2}日[^\n\r]{0,80}(?:\d{1,2}時[^\n\r]{0,40}分)?", html_text):
-                    found.add(m.strip())
-                return found
+        return self.availability_service.collect_all_available_slots(
+            self.driver,
+            weeks_limit=weeks_limit,
+            only_weekday=only_weekday,
+        )
 
-            # Search current document and any iframe documents
-            searched = 0
-            # prepare debug dir
-            debug_dir = Path(config['PATH']['OUTPUT_CSV_PATH']) / 'debug_pages'
-            debug_dir.mkdir(parents=True, exist_ok=True)
-            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            # wait for vacancy table to be populated (AJAX)
-            try:
-                WebDriverWait(self.driver, 8).until(
-                    lambda d: d.find_element(By.CSS_SELECTOR, '#usedate-table tbody').get_attribute('innerHTML').strip() != ''
-                )
-            except Exception:
-                # fallback: wait until loading indicator is gone
-                try:
-                    WebDriverWait(self.driver, 8).until(
-                        lambda d: d.find_element(By.ID, 'usedate-loading').get_attribute('style').find('display: none') != -1
-                    )
-                except Exception:
-                    pass
-            # try current page — prefer parsing the vacancy calendar table
-            try:
-                WebDriverWait(self.driver, 6).until(
-                    lambda d: d.find_element(By.CSS_SELECTOR, '#usedate-table tbody')
-                )
-            except Exception:
-                pass
-
-            html = self.driver.page_source
-            # save main page html for inspection
-            try:
-                main_path = debug_dir / f'page_main_{ts}.html'
-                with open(main_path, 'w', encoding='utf-8') as fh:
-                    fh.write(html)
-                print('Saved debug HTML:', main_path)
-            except Exception:
-                logging.exception('Failed to save main page HTML')
-
-            # Parse the calendar table directly using Selenium DOM (more reliable than regex)
-            slots_set = set()
-            try:
-                # gather header dates
-                def parse_current_table_and_add():
-                    header_inputs = self.driver.find_elements(By.CSS_SELECTOR, '#usedate-table thead input[name="selectUseYMD"]')
-                    dates = [h.get_attribute('value') for h in header_inputs]
-                    rows = self.driver.find_elements(By.CSS_SELECTOR, '#usedate-table tbody tr')
-                    for row in rows:
-                        try:
-                            time_label = row.find_element(By.TAG_NAME, 'th').text.strip()
-                        except Exception:
-                            time_label = ''
-                        tds = row.find_elements(By.TAG_NAME, 'td')
-                        for idx, td in enumerate(tds):
-                            try:
-                                ymd = dates[idx] if idx < len(dates) else ''
-                                koma = td.find_element(By.CSS_SELECTOR, 'input[name="selectKomaNo"]').get_attribute('value')
-                                stime = td.find_element(By.CSS_SELECTOR, 'input[name="selectStime"]').get_attribute('value')
-                                etime = td.find_element(By.CSS_SELECTOR, 'input[name="selectEtime"]').get_attribute('value')
-                                field = td.find_element(By.CSS_SELECTOR, 'input[name="selectField"]').get_attribute('value')
-                                # applied count shown in bold
-                                applied = ''
-                                try:
-                                    applied = td.find_element(By.CSS_SELECTOR, 'span.font-weight-bold').text.strip()
-                                except Exception:
-                                    txt = td.text.strip()
-                                    m = re.findall(r"\d+", txt)
-                                    applied = m[-1] if m else ''
-
-                                slot_str = f"{ymd} {time_label} {stime}-{etime} fields:{field} applied:{applied}"
-                                # filter by weekday if requested (Monday=0 ... Sunday=6). Saturday==5
-                                if only_weekday is not None and ymd:
-                                    try:
-                                        d = datetime.datetime.strptime(ymd, '%Y%m%d')
-                                        if d.weekday() != int(only_weekday):
-                                            continue
-                                    except Exception:
-                                        # if parse failed, skip filtering for this item
-                                        pass
-                                slots_set.add(slot_str)
-                            except Exception:
-                                continue
-                    return dates
-
-                # determine target month end from srchStartYMD hidden input
-                try:
-                    srch_start = self.driver.find_element(By.NAME, 'srchStartYMD').get_attribute('value')
-                    year = int(srch_start[0:4])
-                    month = int(srch_start[4:6])
-                    month_end_day = calendar.monthrange(year, month)[1]
-                    target_month_end = f"{year}{month:02d}{month_end_day:02d}"
-                except Exception:
-                    target_month_end = None
-
-                # parse first page
-                curr_dates = parse_current_table_and_add()
-
-                # if we know the target month end, paginate until we cover it
-                if target_month_end:
-                    iterations = 0
-                    while True:
-                        iterations += 1
-                        # get current max date displayed
-                        try:
-                            max_display = max(curr_dates) if curr_dates else None
-                        except Exception:
-                            max_display = None
-                        if max_display and max_display >= target_month_end:
-                            break
-                        if iterations > weeks_limit:
-                            break
-                        # click next-week button
-                        try:
-                            btn = self.driver.find_element(By.ID, 'next-week')
-                            btn.click()
-                        except Exception:
-                            # fallback: try clicking by onclick anchors
-                            try:
-                                anchors = self.driver.find_elements(By.XPATH, "//a[@onclick]")
-                                clicked = False
-                                for a in anchors:
-                                    onclick = a.get_attribute('onclick') or ''
-                                    if 'Next' in onclick or 'next' in onclick or 'doNextWeek' in onclick or 'week' in onclick:
-                                        try:
-                                            a.click()
-                                            clicked = True
-                                            break
-                                        except Exception:
-                                            continue
-                                if not clicked:
-                                    break
-                            except Exception:
-                                break
-                        # wait for table update (header dates change)
-                        try:
-                            WebDriverWait(self.driver, 6).until(lambda d: d.find_element(By.CSS_SELECTOR, '#usedate-table thead input[name="selectUseYMD"]').get_attribute('value') != (curr_dates[0] if curr_dates else ''))
-                        except Exception:
-                            time.sleep(0.5)
-                        # save paged html
-                        try:
-                            page_idx = iterations
-                            page_path = debug_dir / f'page_{page_idx}_{ts}.html'
-                            with open(page_path, 'w', encoding='utf-8') as pf:
-                                pf.write(self.driver.page_source)
-                            print('Saved debug HTML:', page_path)
-                        except Exception:
-                            logging.exception('Failed to save paged HTML')
-                        # parse new page and continue
-                        try:
-                            curr_dates = parse_current_table_and_add()
-                        except Exception:
-                            break
-                else:
-                    # unknown month end -> parse current page only
-                    pass
-            except Exception:
-                # if DOM parsing failed, fallback to regex search across page and frames
-                logging.exception('DOM parsing of calendar failed, falling back to regex')
-                slots_set.update(extract_from_html(html))
-                frames = self.driver.find_elements(By.TAG_NAME, 'iframe')
-                for f in frames:
-                    try:
-                        self.driver.switch_to.frame(f)
-                        fh = self.driver.page_source
-                        # save iframe html
-                        try:
-                            frame_idx = frames.index(f)
-                            frame_path = debug_dir / f'iframe_{frame_idx}_{ts}.html'
-                            with open(frame_path, 'w', encoding='utf-8') as ff:
-                                ff.write(fh)
-                            print('Saved debug HTML:', frame_path)
-                        except Exception:
-                            logging.exception('Failed to save iframe HTML')
-                        slots_set.update(extract_from_html(fh))
-                        self.driver.switch_to.default_content()
-                    except Exception:
-                        try:
-                            self.driver.switch_to.default_content()
-                        except Exception:
-                            pass
-            # if nothing found yet, attempt to paginate weekly pages (best-effort)
-            if not slots_set:
-                for i in range(weeks_limit):
-                    time.sleep(0.5)
-                    html = self.driver.page_source
-                    # save paginated page for debugging
-                    try:
-                        page_path = debug_dir / f'page_{i}_{ts}.html'
-                        with open(page_path, 'w', encoding='utf-8') as pf:
-                            pf.write(html)
-                        print('Saved debug HTML:', page_path)
-                    except Exception:
-                        logging.exception('Failed to save paged HTML')
-                    slots_set.update(extract_from_html(html))
-                    # attempt several types of next controls
-                    clicked = False
-                    try:
-                        # anchors with onclick
-                        anchors = self.driver.find_elements(By.XPATH, "//a[@onclick]")
-                        for a in anchors:
-                            onclick = a.get_attribute('onclick') or ''
-                            if 'next' in onclick or 'Next' in onclick or 'week' in onclick:
-                                try:
-                                    a.click()
-                                    clicked = True
-                                    break
-                                except Exception:
-                                    continue
-                        if not clicked:
-                            # fallback: links with caret or next text
-                            for txt in ("次へ", "次", ">", ">>"):
-                                try:
-                                    el = self.driver.find_element(By.LINK_TEXT, txt)
-                                    el.click()
-                                    clicked = True
-                                    break
-                                except Exception:
-                                    continue
-                    except Exception:
-                        clicked = False
-                    if not clicked:
-                        break
-
-            # sort slots by ymd then numeric start time (avoid unicode string order issues)
-            slots = []
-            entries = []
-            for s in slots_set:
-                m = re.match(r'^(?P<ymd>\d{8}).*?(?P<stime>\d{1,4})-(?P<etime>\d{1,4})', s)
-                if m:
-                    ymd = m.group('ymd')
-                    try:
-                        stime = int(m.group('stime'))
-                    except Exception:
-                        stime = 9999
-                else:
-                    # fallback: put unknowns at end
-                    ymd = ''
-                    stime = 9999
-                entries.append((ymd, stime, s))
-            entries.sort(key=lambda t: (t[0], t[1]))
-            slots = [t[2] for t in entries]
-
-        except Exception:
-            logging.exception("空き日時収集中に例外が発生しました")
-
-        # save to CSV
-        out_path = config['PATH']['OUTPUT_CSV_PATH'] + '/available_slots_{0}.csv'.format(datetime.date.today())
-        try:
-            import csv
-            with open(out_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(['slot'])
-                for s in slots:
-                    writer.writerow([s])
-        except Exception:
-            logging.exception("空き日時CSVの保存に失敗しました")
-
-        print('Saved available slots to: ' + out_path)
-        if not slots:
-            print('No slots found')
-        return slots
-
-    def prompt_user_to_select_slots(self, slots, max_select=2):
-        """
-        ターミナル上でスロット一覧を表示してユーザーに選択させる。選択値のリストを返す。
-        """
-        if not slots:
-            print('No slots found')
-            return []
-        print('Available slots:')
-        for i, s in enumerate(slots, start=1):
-            print(f"{i}: {s}")
-        sel = input(f'Select up to {max_select} slots by number (comma separated): ').strip()
-        if not sel:
-            return []
-        nums = []
-        for part in sel.split(','):
-            try:
-                n = int(part.strip())
-                if 1 <= n <= len(slots):
-                    nums.append(n)
-            except ValueError:
-                continue
-        nums = nums[:max_select]
-        selected = [slots[n-1] for n in nums]
-        print('Selected:')
-        for s in selected:
-            print(s)
-        return selected
-
-    # ここからボタン実行用メソッド
-    def semiauto_reserv_button(self):
-        """
-        抽選申込みボタンが押された時の処理
-        """
-        self.semiauto_reserv(mi.get_id_dict_from_csv(self.entry_input_csv.get()))
-
-    def start_reservation_button(self):
-        """Mode-aware handler for reservation button: calls semi or full auto based on selection."""
-        id_dict = mi.get_id_dict_from_csv(self.entry_input_csv.get())
-        mode = self.mode_var.get() if getattr(self, 'mode_var', None) is not None else 'semi'
-        if mode == 'full':
-            # run full auto
-            self.full_auto_reserv(id_dict)
-        else:
-            self.semiauto_reserv(id_dict)
-
-    def check_lottery_button(self):
-        """
-        抽選申込み状況確認ボタンが押された時の処理
-        """
-        self.check_lottery(mi.get_id_dict_from_csv(self.entry_input_csv.get()), check_lottery_csv)
-
-    def check_result_button(self):
-        """
-        抽選申込み結果確認ボタンが押された時の処理
-        """
-        self.check_result(mi.get_id_dict_from_csv(self.entry_input_csv.get()), check_result_csv)
-
-    def determine_button(self):
-        """
-        予約確定ボタンが押された時の処理
-        """
-        self.determine_reserv(self.entry_result_csv.get(), determined_csv)
-
-    def check_reserv_button(self):
-        """
-        抽選申込み結果確認ボタンが押された時の処理
-        """
-        self.check_reserv(mi.get_id_dict_from_csv(self.entry_result_csv.get()), check_reserv_csv)
-
-    def check_id_button(self):
-        """
-        ID有効確認ボタンが押された時の処理
-        """
-        alive_id_list, dead_id_list = mi.get_alive_dead_id_dict(mi.get_id_dict_from_csv(self.entry_check_id_csv.get()))
-        mi.output_csv_from_id_dict(alive_id_list, alive_id_list_csv)
-        mi.output_csv_from_id_dict(dead_id_list, dead_id_list_csv)
-
-    # ここからCourt Reservメソッド
     def semiauto_reserv(self, id_dict={}):
-        """
-        IDリストを引数にして
-        半自動抽選申込み. 抽選申込み日の選択と申込みは手動
-        """
-        # 引数でID dictを指定しない場合
         if not id_dict:
-            id_dict = self.id_dict
-        # 申し込み人数カウント用
-        list_count = 1
-        # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
-        for k, v in id_dict.items():
-            reserv_count = 0
-            self.driver.get(config['URL']['TOP_URL'])
-            print("申し込み " + str(list_count) + "人目/" + str(len(id_dict)) + "人" + v[0])
-            try:
-                # ログインページへ移動
-                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
-                self.driver.find_element(By.NAME,"userId").send_keys(k)
-                self.driver.find_element(By.NAME,"password").send_keys(v[2])
-                # ログイン
-                time.sleep(0.5)
-                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
-            except UnexpectedAlertPresentException:
-                print("ID:" + k + " 期限切れ")
-                logging.warning("ID:" + k + " 期限切れ")
-                continue
-
-            # # 有効期限が近づいている画面が出た場合
-            # if "お知らせ画面" in self.driver.title:
-            #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
-            #     logging.warn("ID:" + k + " 期限が近くなっています")
-
-            # if "伝言表示画面" in self.driver.title:
-            #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
-            #     logging.warn("ID:" + k + " 伝言アリ")
-            logging.info("ID:" + k + " ログイン")
-
-            if "ホーム画面" in self.driver.title:
-                # 抽選申し込み画面へ
-                self.driver.execute_script("javascript:doAction(document.form1, gLotWOpeLotSearchAction);")
-                # 種目選択（テニス（人工芝））
-                self.driver.execute_script("javascript:doLotEntry('130');")
-                time.sleep(1)
-
-                # 公園選択（府中の森公園）
-                Select(self.driver.find_element(By.ID,"bname")).select_by_value("1301270")
-                # time.sleep(1)
-                self.driver.execute_script("changeBname(document.form1);")
-
-                wait = WebDriverWait(self.driver, 10)
-                wait.until(lambda d: any(
-                    opt.get_attribute("value") == "12700020"
-                    for opt in Select(d.find_element(By.ID, "iname")).options
-                    ))
-                # 種目選択2回目（テニス（人工芝））
-                Select(self.driver.find_element(By.ID,"iname")).select_by_value("12700020")
-
-                # # 公園選択（大井ふ頭Bオムニ）
-                # Select(self.driver.find_element(By.ID,"bname")).select_by_value("1301315")
-                # time.sleep(1)
-                # # 種目選択2回目（テニス（人工芝））
-                # Select(self.driver.find_element(By.ID,"iname")).select_by_value("13150110")
-
-
-                # # 種目選択（テニス（ハード））
-                # self.driver.execute_script("javascript:doLotEntry('120');")
-
-                # # 公園選択（大井ふ頭Bハード）
-                # Select(self.driver.find_element(By.ID,"bname")).select_by_value("1201315")
-                # time.sleep(1)
-                # # 種目選択2回目（テニス（ハード））
-                # Select(self.driver.find_element(By.ID,"iname")).select_by_value("13150050")
-
-                while reserv_count < 2:
-                    # 申し込み中処理（手動申し込み）
-                    time.sleep(0.5)
-                    try:
-                        if "東京都スポーツ施設サービス" in self.driver.title:
-                            logging.info("ID:" + k + " ログアウト")
-                            break
-                        elif "申込内容確認画面" in self.driver.title:
-                            reserv_count += 1
-                            soup = bs(self.driver.page_source, 'html.parser')
-                            # Beautiful soupで申込み日と時間の取得
-                            foundlist = [elem.string for elem in soup.find_all('td', string=['年', '月', '日', '時', '分'])]
-                            if reserv_count == 1:
-                                # 申し込み番号入力（1件目）
-                                time.sleep(0.3)
-                                Select(self.driver.find_element(By.ID,"apply")).select_by_value("1-1")
-                                time.sleep(0.2)
-                            elif reserv_count == 2:
-                                time.sleep(0.3)
-                                Select(self.driver.find_element(By.ID,"apply")).select_by_value("2-1")
-                                time.sleep(0.2)
-                            # 申込み実行 → reCAPTCHA が出る可能性があるため手動クリックを促し、
-                            # 出た場合はブラウザでの認証を待機する
-                            # Show a GUI prompt only if captcha is present; otherwise print a terminal hint
-                            try:
-                                if self._detect_captcha():
-                                    messagebox.showinfo('手動操作が必要です', '申込み実行画面が表示されました。画面上で申込み実行を手動で実施してください。reCAPTCHAが表示された場合はブラウザ上で認証してください。')
-                                else:
-                                    print('Manual submit required: please click submit in the browser. If reCAPTCHA appears, solve it manually.')
-                            except Exception:
-                                print('Manual submit required: please click submit in the browser. If reCAPTCHA appears, solve it manually.')
-
-                            # wait for completion; if captcha appears at any point, prompt user to solve
-                            while not "抽選メール送信完了画面" in self.driver.title:
-                                try:
-                                    # if captcha detected, ask user to solve it before continuing
-                                    try:
-                                        if self._detect_captcha():
-                                            solved = self._wait_for_captcha_solve()
-                                            if not solved:
-                                                logging.warning('User cancelled captcha solving; aborting this reservation')
-                                                break
-                                    except Exception:
-                                        pass
-
-                                    # ポップアップ処理
-                                    WebDriverWait(self.driver, 60).until(EC.alert_is_present(),
-                                                            'Timed out waiting for PA creation ' +
-                                                            'confirmation popup to appear.')
-                                    alert = self.driver.switch_to.alert
-                                    alert.accept()
-                                    WebDriverWait(self.driver, 1).until(EC.alert_is_present(),
-                                                            'Timed out waiting for PA creation ' +
-                                                            'confirmation popup to appear.')
-                                    time.sleep(0.3)
-                                except (TimeoutException, UnexpectedAlertPresentException):
-                                    continue
-                            print("reserved: ID = " + k + ", reserv_count = " + str(reserv_count))
-                    except TimeoutException or UnexpectedAlertPresentException:
-                        continue
-            list_count += 1
-            time.sleep(0.5)
-            # ログアウト
-            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
-            time.sleep(0.5)
-        self.driver.close()
+            return
+        self.lottery_service.semiauto_reserv(id_dict)
 
     def full_auto_reserv(self, id_dict={}, max_attempts=2):
-        """
-        完全自動で抽選申込みを試みる。reCAPTCHA 等がある場合は送信に失敗する可能性あり。
-        第2引数 `max_attempts` で各IDに対する最大申込み回数を指定。
-        """
         if not id_dict:
-            id_dict = self.id_dict
-        list_count = 1
-        self._start_driver()
-        for k, v in id_dict.items():
-            reserv_count = 0
-            print("自動申し込み " + str(list_count) + "人目/" + str(len(id_dict)) + "人" + v[0])
-            if not self._login(k, v[2]):
-                continue
-            logging.info("ID:%s ログイン", k)
-
-            if "ホーム画面" in self.driver.title:
-                try:
-                    self._navigate_to_lottery_entry()
-                    # 申込内容確認画面が表示されるのを待ち、見つかれば自動で送信する
-                    while reserv_count < max_attempts:
-                        time.sleep(0.5)
-                        if "申込内容確認画面" in self.driver.title:
-                            reserv_count += 1
-                            # 申し込み番号入力
-                            sel_val = f"{reserv_count}-1"
-                            Select(self.driver.find_element(By.ID, "apply")).select_by_value(sel_val)
-                            time.sleep(0.2)
-                            # 申込み実行（可能なら自動でクリック）
-                            try:
-                                try:
-                                    if self._detect_captcha():
-                                        ok = self._wait_for_captcha_solve()
-                                        if not ok:
-                                            logging.warning("ID:%s captcha not solved, aborting auto apply", k)
-                                            break
-                                except Exception:
-                                    pass
-                                self.driver.execute_script("javascript:sendLotApply(document.form1, gLotWInstLotApplyAction, event);")
-                            except Exception:
-                                logging.warning("ID:%s 自動申込みスクリプト実行に失敗", k)
-                            # ポップアップ処理
-                            try:
-                                WebDriverWait(self.driver, 60).until(EC.alert_is_present())
-                                alert = self.driver.switch_to.alert
-                                alert.accept()
-                            except TimeoutException:
-                                logging.warning("ID:%s 申込み確認ポップアップが表示されませんでした", k)
-                            # 完了画面になるのを待つ（短時間）
-                            try:
-                                WebDriverWait(self.driver, 10).until(lambda d: "抽選メール送信完了画面" in d.title)
-                            except Exception:
-                                logging.info("ID:%s 抽選送信完了画面への遷移を確認できませんでした", k)
-                            print("reserved: ID = " + k + ", reserv_count = " + str(reserv_count))
-                        elif "東京都スポーツ施設サービス" in self.driver.title:
-                            logging.info("ID:%s ログアウト検出", k)
-                            break
-                        else:
-                            time.sleep(0.5)
-                except Exception as e:
-                    logging.exception("ID:%s 自動申込み中に例外", k)
-
-            list_count += 1
-            time.sleep(0.5)
-            self._logout()
-            time.sleep(0.5)
-        try:
-            self.driver.close()
-        except Exception:
-            pass
+            return
+        self.lottery_service.full_auto_reserv(id_dict, max_attempts=max_attempts)
 
     def auto_select_and_submit_slots(self, selected_slots, submit=True, wait_alert_seconds=10):
-        """
-        selected_slots: list of strings in format 'YYYYMMDD <time_label> <stime>-<etime> ...'
-        Attempts to select matching slots on the current calendar page and optionally submit the application.
-        Returns dict {slot: True/False} indicating whether selection was applied for each slot.
-        """
-        result = {}
-        if not getattr(self, 'driver', None):
-            raise RuntimeError('Driver not started')
-
-        for s in selected_slots:
-            # parse ymd and stime
-            parts = s.split()
-            ymd = parts[0] if parts else ''
-            stime = ''
-            # find pattern like 900-1100 after time label
-            for p in parts:
-                if '-' in p and p.split('-')[0].isdigit():
-                    stime = p.split('-')[0]
-                    break
-            # ensure the week containing ymd is displayed (try paginating)
-            if ymd:
-                try:
-                    attempts = 0
-                    print(f"[debug] Ensure week for {ymd} is displayed")
-                    while attempts < 10:
-                        attempts += 1
-                        headers = self.driver.execute_script("return Array.from(document.querySelectorAll('#usedate-table thead input[name=\"selectUseYMD\"]')).map(h=>h.value);")
-                        print(f"[debug] attempt {attempts}, headers={headers}")
-                        if ymd in headers:
-                            print(f"[debug] target {ymd} found in headers")
-                            break
-                        # decide direction: if ymd > max -> click next, if ymd < min -> click prev
-                        if headers:
-                            try:
-                                min_h = min(headers)
-                                max_h = max(headers)
-                                print(f"[debug] min_h={min_h}, max_h={max_h}")
-                                if ymd > max_h:
-                                    # next-week
-                                    print('[debug] clicking next-week')
-                                    try:
-                                        self.driver.execute_script("document.getElementById('next-week').click();")
-                                    except Exception:
-                                        try:
-                                            self.driver.execute_script("doNextWeek(document.form1, gLotWTransLotInstSrchVacantAjaxAction);")
-                                        except Exception:
-                                            print('[debug] next-week click failed')
-                                elif ymd < min_h:
-                                    print('[debug] clicking last-week')
-                                    try:
-                                        self.driver.execute_script("document.getElementById('last-week').click();")
-                                    except Exception:
-                                        try:
-                                            self.driver.execute_script("doPrevWeek(document.form1, gLotWTransLotInstSrchVacantAjaxAction);")
-                                        except Exception:
-                                            print('[debug] last-week click failed')
-                                else:
-                                    # not in current range, attempt next
-                                    print('[debug] not in range, clicking next-week')
-                                    try:
-                                        self.driver.execute_script("document.getElementById('next-week').click();")
-                                    except Exception:
-                                        try:
-                                            self.driver.execute_script("doNextWeek(document.form1, gLotWTransLotInstSrchVacantAjaxAction);")
-                                        except Exception:
-                                            print('[debug] fallback next-week click failed')
-                            except Exception as e:
-                                print(f'[debug] header compare failed: {e}')
-                                try:
-                                    self.driver.execute_script("document.getElementById('next-week').click();")
-                                except Exception:
-                                    pass
-                        time.sleep(0.6)
-                    print(f"[debug] finished pagination attempts for {ymd}")
-                except Exception:
-                    pass
-            js = """
-            (function(ymd, stime) {
-                var info = {found:false, idx:-1, clicked:false, reason:''};
-                try {
-                    var headers = Array.from(document.querySelectorAll('#usedate-table thead input[name="selectUseYMD"]')).map(h=>h.value);
-                    for (var i=0;i<headers.length;i++){
-                        if (headers[i] === ymd){ info.idx = i; break; }
-                    }
-                    if (info.idx === -1){ info.reason='ymd not in headers'; return info; }
-                    var rows = document.querySelectorAll('#usedate-table tbody tr');
-                    for (var r=0;r<rows.length;r++){
-                        var tds = rows[r].querySelectorAll('td');
-                        var td = tds[info.idx];
-                        if (!td) continue;
-                        var st = td.querySelector('input[name="selectStime"]');
-                        if (st){
-                            try{
-                                if (parseInt(st.value,10) === parseInt(stime,10)){
-                                    info.found = true;
-                                    // try to click the cell or inner number element
-                                    try{ td.click(); info.clicked = true; }catch(e){}
-                                    try{
-                                        var num = td.querySelector('span.font-weight-bold');
-                                        if(num){ num.click(); info.clicked = true; }
-                                    }catch(e){}
-                                    // also set checkboxes so state is consistent
-                                    try{ Array.from(td.querySelectorAll('input[type=checkbox]')).forEach(c=>c.checked=true); }catch(e){}
-                                    try{ document.querySelectorAll('#usedate-table thead input[name="selectUseYMD"]')[info.idx].checked = true; }catch(e){}
-                                    return info;
-                                }
-                            }catch(e){ }
-                        }
-                    }
-                    info.reason='no matching stime in cells';
-                    return info;
-                } catch(e) { info.reason='exception:'+e; return info; }
-            })(arguments[0], arguments[1]);
-            """
-            try:
-                # return JSON string for reliable serialization
-                # ensure the JS IIFE does not leave a trailing semicolon inside the
-                # JSON.stringify wrapper which causes `Unexpected token ';'`.
-                clean_js = js.rstrip()
-                if clean_js.endswith(';'):
-                    clean_js = clean_js[:-1]
-                json_js = 'return JSON.stringify(' + clean_js + ');'
-                info_str = self.driver.execute_script(json_js, ymd, stime)
-                import json as _json
-                try:
-                    info = _json.loads(info_str) if info_str else None
-                except Exception:
-                    info = None
-                print(f"[debug] select attempt for {s}: {info}")
-                ok = bool(info and info.get('found', False))
-            except Exception as e:
-                print(f"[debug] execute_script failed: {e}")
-                ok = False
-            result[s] = ok
-
-        # submit if requested and at least one selection succeeded
-        if submit and any(result.values()):
-            try:
-                # open the confirmation/apply flow
-                try:
-                    self.driver.execute_script("javascript:doApplay(document.form1, gLotWInstTempLotApplyAction);")
-                except Exception:
-                    try:
-                        btn = self.driver.find_element(By.ID, 'btn-go')
-                        btn.click()
-                    except Exception:
-                        pass
-
-                # Count how many slots were successfully selected
-                success_count = sum(1 for v in result.values() if v)
-
-                # For each successful slot, wait for the confirmation page, set the apply select,
-                # then execute the final apply action (matching semiauto_reserv behavior)
-                applied = 0
-                for i in range(success_count):
-                    try:
-                        WebDriverWait(self.driver, wait_alert_seconds).until(lambda d: '申込内容確認画面' in d.title)
-                    except Exception:
-                        # if confirmation page doesn't appear, try short sleep and continue
-                        time.sleep(0.5)
-                    try:
-                        applied += 1
-                        sel_val = f"{applied}-1"
-                        try:
-                            Select(self.driver.find_element(By.ID, 'apply')).select_by_value(sel_val)
-                        except Exception:
-                            logging.warning('apply select not found to set %s', sel_val)
-                        time.sleep(0.2)
-                        try:
-                            # If captcha present, prompt user to solve before submitting
-                            try:
-                                if self._detect_captcha():
-                                    ok = self._wait_for_captcha_solve()
-                                    if not ok:
-                                        logging.warning('User cancelled captcha handling; aborting apply loop')
-                                        break
-                            except Exception:
-                                pass
-                            self.driver.execute_script("javascript:sendLotApply(document.form1, gLotWInstLotApplyAction, event);")
-                        except Exception:
-                            # fallback: try clicking a known apply button if present
-                            try:
-                                btn_apply = self.driver.find_element(By.ID, 'btn-apply')
-                                btn_apply.click()
-                            except Exception:
-                                pass
-
-                        # handle confirmation alert
-                        try:
-                            WebDriverWait(self.driver, wait_alert_seconds).until(EC.alert_is_present())
-                            alert = self.driver.switch_to.alert
-                            alert_text = alert.text
-                            alert.accept()
-                            logging.info('Accepted confirmation alert: %s', alert_text)
-                        except Exception:
-                            logging.info('No confirmation alert appeared for apply %s', sel_val)
-
-                        # wait for completion page briefly
-                        try:
-                            WebDriverWait(self.driver, 10).until(lambda d: '抽選メール送信完了画面' in d.title)
-                        except Exception:
-                            # not fatal; continue to next apply
-                            pass
-                    except Exception:
-                        logging.exception('Error during confirmation/apply loop')
-                        break
-            except Exception:
-                logging.exception('Error during submit')
-
-        return result
+        return self.lottery_service.auto_select_and_submit_slots(
+            self.driver,
+            selected_slots,
+            submit=submit,
+            wait_alert_seconds=wait_alert_seconds,
+        )
 
     def check_lottery(self, id_dict={}, output_csv_path=""):
-        """
-        IDリストを引数にして抽選申込み日を取得
-        IDに申込み日を追加したdictを返す
-        dict形式:
-            {ID, [名前(漢字),名前(カタカナ),パスワード(生年月日),申込日1,申込み日2]}
-        第2引数に出力先CSRファイルパスを指定した場合はCSVを出力
-        """
-        # 引数でID dictを指定しない場合
         if not id_dict:
-            id_dict = self.id_dict
-        reserv_dict = {}
-        
-        # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
-        for k, v in id_dict.items():
-            self.driver.get(config['URL']['TOP_URL'])
-            try:
-                # ログインページへ移動
-                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
-                self.driver.find_element(By.NAME,"userId").send_keys(k)
-                self.driver.find_element(By.NAME,"password").send_keys(v[2])
-                # ログイン
-                time.sleep(0.5)
-                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
-
-                # # 有効期限が近づいている画面が出た場合
-                # if "お知らせ画面" in self.driver.title:
-                #     if "利用者カードの有効期限が切れている" in self.driver.page_source:
-                #         print("ID:" + k + " 期限切れ")
-                #         continue
-                #     else:
-                #         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
-                # if "伝言表示画面" in self.driver.title:
-                #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
-                #     logging.warn("ID:" + k + " 伝言アリ")
-
-            except UnexpectedAlertPresentException:
-                print("ID:" + k + " 期限切れ")
-                logging.warning("ID:" + k + " 期限切れ")
-                continue
-
-            if "ホーム画面" in self.driver.title:
-                try:
-                    # 抽選申し込み確認画面へ
-                    self.driver.execute_script("javascript:doAction(document.form1, gLotWTransLotCancelListAction);")
-                    # Beautiful soupで申込み日と時間の取得
-                    time.sleep(0.5)
-                    soup = bs(self.driver.page_source, 'html.parser')
-                    found_day_list = [elem.text for elem in soup.find_all(string=re.compile("月.*日(.*)"))]
-                    found_time_list = [elem.text for elem in soup.find_all(string=re.compile("時.*分"))]
-                    if len(found_day_list) == 2:
-                        print("ID:" + k + " 申込み日1→ " + found_day_list[0] + " " + found_time_list[0] + found_time_list[1])
-                        print("ID:" + k + " 申込み日2→ " + found_day_list[1] + " " + found_time_list[2]+ found_time_list[3])
-                        reserv_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0] + found_time_list[1], found_day_list[1] + " " + found_time_list[2] + found_time_list[3]]
-                    elif len(found_day_list) == 1:
-                        print("ID:" + k + " 申込み日1→ " + found_day_list[0] + " " + found_time_list[0] + found_time_list[1])
-                        reserv_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0] + found_time_list[1]]
-                    else:
-                        print("ID:" + k + " 申込みなし")
-                        reserv_dict[k] = [v[0], v[1], v[2], "", ""]
-                except UnexpectedAlertPresentException:
-                    print("ID:" + k + " 申込みなし")
-                    reserv_dict[k] = [v[0], v[1], v[2], "", ""]
-                    continue
-
-            time.sleep(1)
-            # ログアウト
-            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
-            time.sleep(1)
-        self.driver.close()
-
-        if output_csv_path != "":
-            mi.output_csv_from_id_dict(reserv_dict, output_csv_path)
-        return reserv_dict
+            return {}
+        return self.lottery_service.check_lottery(id_dict, output_csv_path)
 
     def check_result(self, id_dict={}, output_csv_path=""):
-        """
-        IDリストを引数にして抽選当選日を取得
-        ※当選確定は手動
-        IDに当選日を追加したdictを返す
-        dict形式:
-            {ID, [名前(漢字),名前(カタカナ),パスワード(生年月日),当選日1,当選日2]}
-        第2引数に出力先CSRファイルパスを指定した場合はCSVを出力
-        """
         if not id_dict:
-            id_dict = self.id_dict
-
-        result_dict = {}
-        # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
-        for k, v in id_dict.items():
-            self.driver.get(config['URL']['TOP_URL'])
-            try:
-                # ログインページへ移動
-                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
-                self.driver.find_element(By.NAME,"userId").send_keys(k)
-                self.driver.find_element(By.NAME,"password").send_keys(v[2])
-                # ログイン
-                time.sleep(0.5)
-                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
-                # 有効期限が近づいている画面が出た場合
-                # if "お知らせ画面" in self.driver.title:
-                #     if "利用者カードの有効期限が切れている" in self.driver.page_source:
-                #         print("ID:" + k + " 期限切れ")
-                #         continue
-                #     else:
-                #         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
-                # if "伝言表示画面" in self.driver.title:
-                #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
-                #     logging.warn("ID:" + k + " 伝言アリ")
-
-            except UnexpectedAlertPresentException:
-                print("ID:" + k + " 期限切れ")
-                logging.warning("ID:" + k + " 期限切れ")
-                continue
-
-            if "ホーム画面" in self.driver.title:
-                try:
-                    # 抽選結果確認画面へ
-                    self.driver.execute_script("javascript:doAction(document.form1, gLotWTransLotElectListAction);")
-                    # Beautiful soupで申込み日と時間の取得
-                    time.sleep(0.5)
-                    soup = bs(self.driver.page_source, 'html.parser')
-                    found_day_list = [elem.text for elem in soup.find_all('span', string=re.compile("月.*日(.*)"))]
-                    found_time_list = [elem.text for elem in soup.find_all(string=re.compile("時.*分～.*時.*分"))]
-                    # 当選日1日パターン
-                    if len(found_day_list) == 1:
-                        print("ID:" + k + " 当選日1→ " + found_day_list[0] + " " + found_time_list[0])
-                        result_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0]]
-                    # 当選日2日パターン
-                    elif len(found_day_list) == 2:
-                        print("ID:" + k + " 当選日1→ " + found_day_list[0] + " " + found_time_list[0])
-                        print("ID:" + k + " 当選日2→ " + found_day_list[1] + " " + found_time_list[1])
-                        result_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0], found_day_list[1] + " " + found_time_list[1]]
-
-                except UnexpectedAlertPresentException:
-                    print("ID:" + k + " 申込みなし")
-                    #result_dict[k] = [v[0], v[1], v[2], "", ""]
-                    continue
-            time.sleep(1)
-            # ログアウト
-            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
-            time.sleep(1)
-        self.driver.close()
-
-        if output_csv_path != "":
-            mi.output_csv_from_id_dict(result_dict, output_csv_path)
-
-        return result_dict
+            return {}
+        return self.lottery_service.check_result(id_dict, output_csv_path)
 
     def determine_reserv(self, input_csv_path="", output_csv_path=""):
-        """
-        抽選確定日が記入されたcsvを引数にして, 半手動抽選確定をする
-        IDに確定日を追加したdictを返す
-        dict形式:
-            {ID, [名前(漢字),名前(カタカナ),パスワード(生年月日),確定日1,確定日2]}
-        第2引数に出力先CSRファイルパスを指定した場合はCSVを出力
-        """
-        print(input_csv_path)
-        id_dict = mi.get_id_dict_from_csv(input_csv_path)
-
-        result_dict = {}
-        # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
-        for k, v in id_dict.items():
-            self.driver.get(config['URL']['TOP_URL'])
-            try:
-                # ログインページへ移動
-                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
-                self.driver.find_element(By.NAME,"userId").send_keys(k)
-                self.driver.find_element(By.NAME,"password").send_keys(v[2])
-                # ログイン
-                time.sleep(0.5)
-                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
-                # # 有効期限が近づいている画面が出た場合
-                # if "お知らせ画面" in self.driver.title:
-                #     if "利用者カードの有効期限が切れている" in self.driver.page_source:
-                #         print("ID:" + k + " 期限切れ")
-                #         continue
-                #     else:
-                #         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
-                # if "伝言表示画面" in self.driver.title:
-                #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
-                #     logging.warn("ID:" + k + " 伝言アリ")
-
-            except UnexpectedAlertPresentException:
-                print("ID:" + k + " 期限切れ")
-                logging.warning("ID:" + k + " 期限切れ")
-                continue
-
-            if "ホーム画面" in self.driver.title:
-                try:
-                    # 抽選結果確認画面へ
-                    self.driver.execute_script("javascript:doAction(document.form1, gLotWTransLotElectListAction);")
-                    # Beautiful soupで申込み日と時間の取得
-                    time.sleep(0.5)
-                    soup = bs(self.driver.page_source, 'html.parser')
-                    found_day_list = [elem.text for elem in soup.find_all('span', string=re.compile("月.*日(.*)"))]
-                    found_time_list = [elem.text for elem in soup.find_all(string=re.compile("時.*分～.*時.*分"))]
-                    # 当選日1日パターン
-                    if len(found_day_list) == 1:
-                        WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
-                                                              'Timed out waiting for PA creation ' +
-                                                              'confirmation popup to appear.')
-                        alert = self.driver.switch_to.alert
-                        alert.accept()
-                        print("ID:" + k + " 確定日→ " + found_day_list[0] + " " + found_time_list[0])
-                        result_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0]]
-                        logging.info("ID:" + k + " 予約確定完了→ " + found_day_list[0] + " " + found_time_list[0])
-                    # 当選日2日パターン
-                    elif len(found_day_list) == 2:
-                        for i in range(2):
-                            # 2日当選日があった場合、labelが空になるまで
-                            WebDriverWait(self.driver, 240).until(EC.alert_is_present(),
-                                                                  'Timed out waiting for PA creation ' +
-                                                                  'confirmation popup to appear.')
-                            alert = self.driver.switch_to.alert
-                            alert.accept()
-                            if i == 0:
-                                print("ID:" + k + " 確定日→ " + found_day_list[0] + " " + found_time_list[0])
-                                logging.info("ID:" + k + " 予約確定完了→ " + found_day_list[0] + " " + found_time_list[0])
-                            elif i == 1:
-                                print("ID:" + k + " 確定日→ " + found_day_list[1] + " " + found_time_list[1])
-                                result_dict[k] = [v[0], v[1], v[2], found_day_list[0] + " " + found_time_list[0],found_day_list[1] + " " + found_time_list[1]]
-                                logging.info("ID:" + k + " 予約確定完了→ " + found_day_list[1] + " " + found_time_list[1])
-
-                            ## 確定後の画面のhtmlを保存
-                            #html = self.driver.page_source
-                            #with open(config['PATH']['OUTPUT_CSV_PATH'] + '/' + k + '_' + found_list[2] + found_list[
-                            #    3] + '.html', 'w', encoding='utf-8') as f:
-                            #    f.write(html)
-
-                except UnexpectedAlertPresentException:
-                    print("ID:" + k + " 申込みなし")
-                    result_dict[k] = [v[0], v[1], v[2], "", ""]
-                    continue
-
-            time.sleep(1)
-            # ログアウト
-            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
-            time.sleep(1)
-        self.driver.close()
-
-        if output_csv_path != "":
-            mi.output_csv_from_id_dict(result_dict, output_csv_path)
-
-        return result_dict
+        return self.reservation_service.determine_reserv(
+            input_csv_path,
+            output_csv_path,
+        )
 
     def check_reserv(self, id_dict={}, output_csv_path=""):
-        """
-        IDリストを引数にして予約確定日を取得
-        IDに確定日を追加したdictを返す
-            ようにしたいが今はsleepで止めて手動確認する方式
-        dict形式:
-            {ID, [名前(漢字),名前(カタカナ),パスワード(生年月日),確定日1,確定日2]}
-        第2引数に出力先CSRファイルパスを指定した場合はCSVを出力
-        """
         if not id_dict:
-            id_dict = self.id_dict
-
-        result_dict = {}
-        # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
-        for k, v in id_dict.items():
-            self.driver.get(config['URL']['TOP_URL'])
-            try:
-                # ログインページへ移動
-                self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserLoginAction);")
-                self.driver.find_element(By.NAME,"userId").send_keys(k)
-                self.driver.find_element(By.NAME,"password").send_keys(v[2])
-                # ログイン
-                time.sleep(0.5)
-                self.driver.execute_script("javascript:submitLogin(document.form1,gRsvWUserAttestationLoginAction, event);")
-                # # 有効期限が近づいている画面が出た場合
-                # if "お知らせ画面" in self.driver.title:
-                #     if "利用者カードの有効期限が切れている" in self.driver.page_source:
-                #         print("ID:" + k + " 期限切れ")
-                #         continue
-                #     else:
-                #         self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageAction);")
-                # if "伝言表示画面" in self.driver.title:
-                #     self.driver.execute_script("javascript:doAction(((_dom == 3) ? document.layers['disp'].document.form1 : document.form1 ), gRsvWUserMessageNextAction);")
-                #     logging.warn("ID:" + k + " 伝言アリ")
-
-            except UnexpectedAlertPresentException:
-                print("ID:" + k + " 期限切れ")
-                logging.warning("ID:" + k + " 期限切れ")
-                continue
-
-            if "ホーム画面" in self.driver.title:
-                try:
-                    # 予約確認画面へ
-                    self.driver.execute_script("javascript:doAction(document.form1, gRsvWGetCancelRsvDataAction);")
-                    # TODO: 当選確定済の当選結果 のみ出力させたい
-                    time.sleep(3)
-                except UnexpectedAlertPresentException:
-                    print("ID:" + k + " 申込みなし")
-                    result_dict[k] = [v[0], v[1], v[2], "", ""]
-                    continue
-            # ログアウト
-            self.driver.execute_script("javascript:doAction(document.form1, gRsvWTransUserAttestationEndAction);")
-            time.sleep(1)
-
-        self.driver.close()
-        # if output_csv_path != "":
-        #     mi.output_csv_from_id_dict(result_dict, output_csv_path)
-
-        return result_dict
+            return {}
+        return self.reservation_service.check_reserv(id_dict, output_csv_path)
 
     def check_court(self, month):
-        """
-        コートの空き状況をチェック
-        """
-        # Chromeドライバーの起動
-        self.driver = webdriver.Chrome(service=Service(driver_path), options=options)
-        self.driver.get(top_url)
-        # フレーム移動
-        self.driver.switch_to.frame("pawae1002")
-        # 空き状況ページへ移動
-        self.driver.execute_script("javaScript:doActionFrame(((_dom == 3) ? document.layers['disp'].document.formWTransInstSrchVacantAction : document.formWTransInstSrchVacantAction ), gRsvWTransInstSrchVacantAction);")
-        self.driver.execute_script("javascript:doComplexSearchAction((_dom == 3) ? document.layers['disp'].document.form1 : document.form1, gRsvWTransInstSrchMultipleAction);")
-        try:
-            self.driver.find_element_by_name("monthGif" + month).click() # 月選択
-        except:
-            print("対象月が存在しません")
-            self.driver.quit()
-            exit()
-        # 曜日選択 土曜固定
-        self.driver.find_element_by_name("weektype5").click()
-        self.driver.execute_script("javaScript: sendSelectWeekNum2((_dom == 3) ? document.layers['disp'].document.form1: document.form1, gRsvWTransInstSrchPpsAction);")
-        self.driver.execute_script("javascript:doTransInstSrchMultipleAction((_dom == 3) ? document.layers['disp'].document.form1 : document.form1, gRsvWTransInstSrchMultipleAction, '1000', '1030');")
-        # 場所選択 府中の森固定
-        self.driver.find_element_by_name("gifName23").click()
-        self.driver.execute_script("javascript:sendSelectWeekNum((_dom == 3) ? document.layers['disp'].document.form1 : document.form1, gRsvWGetInstSrchInfAction);")
-        print(self.driver.page_source)
-        # TODO ページの保存
-        
-    
+        return self.availability_service.check_court(month)
+
+
 def main():
-    """
-    main
-    """
     root = tk.Tk()
     cr = Court_Reserv(master=root)
     cr.mainloop()
-    
-if __name__ == '__main__':
+
+
+if __name__ == "__main__":
     main()
