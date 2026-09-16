@@ -199,8 +199,8 @@ class LotteryEntryWorkflowService:
         del source_csv, search_dirs
         self._apply_sleep_policy(preference)
         accounts = self.resolve_accounts(id_csv=id_csv, account_id=account_id)
-        reuse_browser_session = bool(getattr(preference, "lottery_reuse_browser_session", False))
-        shared_driver = self.browser_session.create_driver() if reuse_browser_session and accounts else None
+        reuse_browser_session = True
+        shared_driver = self.browser_session.create_driver() if accounts else None
         target_weekdays = (
             preference.lottery_target_weekdays
             if preference.lottery_target_weekdays
@@ -210,12 +210,12 @@ class LotteryEntryWorkflowService:
             "account_source": accounts[0]["source"] if accounts else None,
             "target_weekdays": target_weekdays,
             "accounts": [],
-            "session_strategy": "created_per_account",
+            "session_strategy": "reused_browser_session",
         }
         browser_reused_from_previous_account = False
 
         for index, account in enumerate(accounts):
-            session_reused = bool(reuse_browser_session and browser_reused_from_previous_account)
+            session_reused = browser_reused_from_previous_account
             account_result = self._run_account_with_retry(
                 account=account,
                 preference=preference,
@@ -224,29 +224,26 @@ class LotteryEntryWorkflowService:
                 confirm_submit_callback=confirm_submit_callback,
                 account_index=index + 1,
                 session_reused=session_reused,
-                driver=shared_driver if reuse_browser_session else None,
+                driver=shared_driver,
                 reuse_browser_session=reuse_browser_session,
             )
             result["accounts"].append(account_result)
             if output_dir is not None:
                 self.save_result(result, output_dir)
-            if reuse_browser_session:
-                if index < len(accounts) - 1:
-                    logout_result = self._logout_and_verify_login_page(shared_driver)
-                    account_result["logout_result"] = logout_result
-                    if not logout_result.get("success"):
-                        self.browser_session.safe_quit(shared_driver)
-                        shared_driver = self.browser_session.create_driver()
-                        browser_reused_from_previous_account = False
-                        account_result["session_reused"] = False
-                    else:
-                        account_result["session_reused"] = session_reused
-                        browser_reused_from_previous_account = True
-                        self._prepare_next_account()
-                else:
+            if index < len(accounts) - 1:
+                logout_result = self._logout_and_verify_login_page(shared_driver)
+                account_result["logout_result"] = logout_result
+                if not logout_result.get("success"):
                     self.browser_session.safe_quit(shared_driver)
-                    shared_driver = None
+                    shared_driver = self.browser_session.create_driver()
                     browser_reused_from_previous_account = False
+                    account_result["session_reused"] = False
+                else:
+                    account_result["session_reused"] = session_reused
+                    browser_reused_from_previous_account = True
+                    self._prepare_next_account()
+            else:
+                self.browser_session.safe_quit(shared_driver)
         return result
 
     def _run_account_with_retry(
@@ -259,7 +256,7 @@ class LotteryEntryWorkflowService:
         account_index,
         session_reused=False,
         driver=None,
-        reuse_browser_session=False,
+        reuse_browser_session=True,
     ):
         retryable = {
             "login_or_navigation_not_ready",
@@ -273,7 +270,7 @@ class LotteryEntryWorkflowService:
         last_result = None
         shared_driver = driver
         for attempt in range(2):
-            if not reuse_browser_session or shared_driver is None:
+            if shared_driver is None:
                 current_driver = self.browser_session.create_driver()
                 created_here = True
             else:
@@ -307,7 +304,7 @@ class LotteryEntryWorkflowService:
                     session_reused=attempt_session_reused,
                 )
             finally:
-                if not reuse_browser_session or not shared_driver is current_driver:
+                if not reuse_browser_session or shared_driver is not current_driver:
                     self.browser_session.safe_quit(current_driver)
             if not last_result or last_result.get("status") not in retryable or attempt >= 1:
                 return last_result
@@ -718,12 +715,6 @@ class LotteryEntryWorkflowService:
                         account_index=account_index,
                         entry_index=entry_index,
                         select_result=entry_result["select_result"],
-                        manual_final_submit=bool(
-                            getattr(preference, "lottery_manual_final_submit", False)
-                        ),
-                        manual_preconfirm_submit=bool(
-                            getattr(preference, "lottery_manual_preconfirm_submit", False)
-                        ),
                     )
                     entry_result["validation"] = submission_result.get(
                         "validation", entry_result.get("validation", {})

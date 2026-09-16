@@ -21,9 +21,6 @@ class ReservationPreference:
     lottery_max_entries_per_account: int = 2
     lottery_search_weeks: int = 8
     lottery_dry_run: bool = True
-    lottery_manual_final_submit: bool = False
-    lottery_manual_preconfirm_submit: bool = False
-    lottery_reuse_browser_session: bool = False
     lottery_human_sleep_enabled: bool = False
     lottery_human_sleep_min: float = 0.5
     lottery_human_sleep_max: float = 1.0

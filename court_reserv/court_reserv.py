@@ -19,6 +19,8 @@ try:
         load_reservation_preference,
         save_preferences_data,
     )
+    from .ui.date_entry import DateEntry, parse_entry_date
+    from .ui.window_position import position_startup_window
     from .manage_id import Manage_Id as mi
     from .services import (
         AvailabilityService,
@@ -43,6 +45,8 @@ except Exception:
         load_reservation_preference,
         save_preferences_data,
     )
+    from ui.date_entry import DateEntry, parse_entry_date
+    from ui.window_position import position_startup_window
     from manage_id import Manage_Id as mi
     from services import (
         AvailabilityService,
@@ -246,7 +250,7 @@ class Court_Reserv(tk.Frame):
         self.driver = None
 
         self._load_last_settings()
-        self.master.geometry(self.window_geometry)
+        position_startup_window(self.master, self.window_geometry)
         self._configure_tennis_styles()
         self.create_widgets()
         self._install_log_handler()
@@ -1188,15 +1192,6 @@ class Court_Reserv(tk.Frame):
             value=int(lottery_data.get("max_entries_per_account", 2))
         )
         dry_run_var = tk.BooleanVar(value=bool(lottery_data.get("dry_run", True)))
-        manual_final_submit_var = tk.BooleanVar(
-            value=bool(lottery_data.get("manual_final_submit", False))
-        )
-        manual_preconfirm_submit_var = tk.BooleanVar(
-            value=bool(lottery_data.get("manual_preconfirm_submit", False))
-        )
-        reuse_browser_session_var = tk.BooleanVar(
-            value=bool(lottery_data.get("reuse_browser_session", False))
-        )
 
         file_frame = ttk.LabelFrame(dialog, text="ファイル", padding=12)
         file_frame.grid(row=0, column=0, sticky=tk.EW, padx=12, pady=(12, 8))
@@ -1263,21 +1258,6 @@ class Court_Reserv(tk.Frame):
         ttk.Checkbutton(lottery_frame, text="ドライラン", variable=dry_run_var).grid(
             row=1, column=2, columnspan=2, sticky=tk.W, pady=(8, 0)
         )
-        ttk.Checkbutton(
-            lottery_frame,
-            text="最終申込みを手動にする（切り分け用）",
-            variable=manual_final_submit_var,
-        ).grid(row=2, column=0, columnspan=4, sticky=tk.W, pady=(8, 0))
-        ttk.Checkbutton(
-            lottery_frame,
-            text="申込みボタン前を手動にする（切り分け用）",
-            variable=manual_preconfirm_submit_var,
-        ).grid(row=3, column=0, columnspan=4, sticky=tk.W, pady=(8, 0))
-        ttk.Checkbutton(
-            lottery_frame,
-            text="ブラウザ再利用（アカウント間）",
-            variable=reuse_browser_session_var,
-        ).grid(row=4, column=0, columnspan=4, sticky=tk.W, pady=(8, 0))
 
         default_tree = self._build_entry_tree(dialog, "共通申込み枠", row=2)
         overrides_tree = self._build_override_tree(dialog, row=3)
@@ -1342,9 +1322,9 @@ class Court_Reserv(tk.Frame):
             lottery["search_weeks"] = int(search_weeks_var.get() or 8)
             lottery["max_entries_per_account"] = int(max_entries_var.get() or 2)
             lottery["dry_run"] = bool(dry_run_var.get())
-            lottery["manual_final_submit"] = bool(manual_final_submit_var.get())
-            lottery["manual_preconfirm_submit"] = bool(manual_preconfirm_submit_var.get())
-            lottery["reuse_browser_session"] = bool(reuse_browser_session_var.get())
+            lottery.pop("manual_final_submit", None)
+            lottery.pop("manual_preconfirm_submit", None)
+            lottery.pop("reuse_browser_session", None)
             lottery["default_entries"] = [
                 {
                     "facility": values[0],
@@ -1450,7 +1430,7 @@ class Court_Reserv(tk.Frame):
         )
 
     def _add_default_entry(self, tree):
-        values = self._prompt_entry_values()
+        values = self._prompt_entry_values(parent=tree.winfo_toplevel())
         if values:
             tree.insert("", tk.END, values=values)
 
@@ -1459,12 +1439,12 @@ class Court_Reserv(tk.Frame):
         if not selected:
             return
         current = tree.item(selected[0], "values")
-        values = self._prompt_entry_values(current=current)
+        values = self._prompt_entry_values(current=current, parent=tree.winfo_toplevel())
         if values:
             tree.item(selected[0], values=values)
 
     def _add_override_entry(self, tree):
-        values = self._prompt_override_values()
+        values = self._prompt_override_values(parent=tree.winfo_toplevel())
         if values:
             tree.insert("", tk.END, values=values)
 
@@ -1473,7 +1453,7 @@ class Court_Reserv(tk.Frame):
         if not selected:
             return
         current = tree.item(selected[0], "values")
-        values = self._prompt_override_values(current=current)
+        values = self._prompt_override_values(current=current, parent=tree.winfo_toplevel())
         if values:
             tree.item(selected[0], values=values)
 
@@ -1481,16 +1461,18 @@ class Court_Reserv(tk.Frame):
         for item in tree.selection():
             tree.delete(item)
 
-    def _prompt_entry_values(self, current=None):
-        return self._show_entry_editor_dialog(current=current)
+    def _prompt_entry_values(self, current=None, parent=None):
+        return self._show_entry_editor_dialog(current=current, parent=parent)
 
-    def _prompt_override_values(self, current=None):
-        return self._show_entry_editor_dialog(current=current, include_account=True)
+    def _prompt_override_values(self, current=None, parent=None):
+        return self._show_entry_editor_dialog(current=current, include_account=True, parent=parent)
 
-    def _show_entry_editor_dialog(self, current=None, include_account=False):
-        dialog = tk.Toplevel(self.master)
+    def _show_entry_editor_dialog(self, current=None, include_account=False, parent=None):
+        parent = parent or self.master
+        previous_grab = parent.grab_current()
+        dialog = tk.Toplevel(parent)
         dialog.title("申込み枠の編集" if not include_account else "ID別申込み枠の編集")
-        dialog.transient(self.master)
+        dialog.transient(parent)
         dialog.grab_set()
         dialog.resizable(False, False)
         dialog.columnconfigure(1, weight=1)
@@ -1525,7 +1507,8 @@ class Court_Reserv(tk.Frame):
         ttk.Label(dialog, text="日付").grid(
             row=row, column=0, sticky=tk.W, padx=12, pady=6
         )
-        ttk.Entry(dialog, textvariable=date_var, width=24).grid(
+        date_input = DateEntry(dialog, date_var)
+        date_input.grid(
             row=row, column=1, sticky=tk.EW, padx=(0, 12), pady=6
         )
         row += 1
@@ -1540,16 +1523,26 @@ class Court_Reserv(tk.Frame):
 
         ttk.Label(
             dialog,
-            text="日付は YYYY-MM-DD、時間帯は HH:MM-HH:MM 形式で入力してください。",
+            text="日付はカレンダーで選択、または YYYY-MM-DD で入力。\n時間帯は HH:MM-HH:MM 形式で入力してください。",
         ).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=12, pady=(0, 8))
         row += 1
 
         result = {"values": None}
 
         def on_save():
+            try:
+                selected_date = parse_entry_date(date_var.get())
+            except ValueError:
+                messagebox.showerror(
+                    "日付を確認してください",
+                    "カレンダーで日付を選ぶか、YYYY-MM-DD 形式の有効な日付を入力してください。",
+                    parent=dialog,
+                )
+                date_input.entry.focus_set()
+                return
             values = (
                 facility_var.get().strip(),
-                date_var.get().strip(),
+                selected_date,
                 time_range_var.get().strip(),
             )
             if include_account:
@@ -1568,7 +1561,15 @@ class Court_Reserv(tk.Frame):
             row=0, column=2
         )
 
-        self.master.wait_window(dialog)
+        dialog.bind("<Escape>", lambda event: dialog.destroy())
+        dialog.wait_visibility()
+        date_input.entry.focus_set()
+        try:
+            parent.wait_window(dialog)
+        finally:
+            if previous_grab is not None and previous_grab.winfo_exists():
+                previous_grab.grab_set()
+                previous_grab.focus_set()
         return result["values"]
 
     def _tree_values(self, tree):
