@@ -19,6 +19,8 @@ try:
         load_reservation_preference,
         save_preferences_data,
     )
+    from .ui.date_entry import DateEntry, parse_entry_date
+    from .ui.window_position import position_startup_window
     from .manage_id import Manage_Id as mi
     from .services import (
         AvailabilityService,
@@ -43,6 +45,8 @@ except Exception:
         load_reservation_preference,
         save_preferences_data,
     )
+    from ui.date_entry import DateEntry, parse_entry_date
+    from ui.window_position import position_startup_window
     from manage_id import Manage_Id as mi
     from services import (
         AvailabilityService,
@@ -246,7 +250,7 @@ class Court_Reserv(tk.Frame):
         self.driver = None
 
         self._load_last_settings()
-        self.master.geometry(self.window_geometry)
+        position_startup_window(self.master, self.window_geometry)
         self._configure_tennis_styles()
         self.create_widgets()
         self._install_log_handler()
@@ -1450,7 +1454,7 @@ class Court_Reserv(tk.Frame):
         )
 
     def _add_default_entry(self, tree):
-        values = self._prompt_entry_values()
+        values = self._prompt_entry_values(parent=tree.winfo_toplevel())
         if values:
             tree.insert("", tk.END, values=values)
 
@@ -1459,12 +1463,12 @@ class Court_Reserv(tk.Frame):
         if not selected:
             return
         current = tree.item(selected[0], "values")
-        values = self._prompt_entry_values(current=current)
+        values = self._prompt_entry_values(current=current, parent=tree.winfo_toplevel())
         if values:
             tree.item(selected[0], values=values)
 
     def _add_override_entry(self, tree):
-        values = self._prompt_override_values()
+        values = self._prompt_override_values(parent=tree.winfo_toplevel())
         if values:
             tree.insert("", tk.END, values=values)
 
@@ -1473,7 +1477,7 @@ class Court_Reserv(tk.Frame):
         if not selected:
             return
         current = tree.item(selected[0], "values")
-        values = self._prompt_override_values(current=current)
+        values = self._prompt_override_values(current=current, parent=tree.winfo_toplevel())
         if values:
             tree.item(selected[0], values=values)
 
@@ -1481,16 +1485,18 @@ class Court_Reserv(tk.Frame):
         for item in tree.selection():
             tree.delete(item)
 
-    def _prompt_entry_values(self, current=None):
-        return self._show_entry_editor_dialog(current=current)
+    def _prompt_entry_values(self, current=None, parent=None):
+        return self._show_entry_editor_dialog(current=current, parent=parent)
 
-    def _prompt_override_values(self, current=None):
-        return self._show_entry_editor_dialog(current=current, include_account=True)
+    def _prompt_override_values(self, current=None, parent=None):
+        return self._show_entry_editor_dialog(current=current, include_account=True, parent=parent)
 
-    def _show_entry_editor_dialog(self, current=None, include_account=False):
-        dialog = tk.Toplevel(self.master)
+    def _show_entry_editor_dialog(self, current=None, include_account=False, parent=None):
+        parent = parent or self.master
+        previous_grab = parent.grab_current()
+        dialog = tk.Toplevel(parent)
         dialog.title("申込み枠の編集" if not include_account else "ID別申込み枠の編集")
-        dialog.transient(self.master)
+        dialog.transient(parent)
         dialog.grab_set()
         dialog.resizable(False, False)
         dialog.columnconfigure(1, weight=1)
@@ -1524,8 +1530,19 @@ class Court_Reserv(tk.Frame):
 
         ttk.Label(dialog, text="日付").grid(
             row=row, column=0, sticky=tk.W, padx=12, pady=6
+            try:
+                selected_date = parse_entry_date(date_var.get())
+            except ValueError:
+                messagebox.showerror(
+                    "日付を確認してください",
+                    "カレンダーで日付を選ぶか、YYYY-MM-DD 形式の有効な日付を入力してください。",
+                    parent=dialog,
+                )
+                date_input.entry.focus_set()
+                return
         )
-        ttk.Entry(dialog, textvariable=date_var, width=24).grid(
+        date_input = DateEntry(dialog, date_var)
+        date_input.grid(
             row=row, column=1, sticky=tk.EW, padx=(0, 12), pady=6
         )
         row += 1
@@ -1540,7 +1557,7 @@ class Court_Reserv(tk.Frame):
 
         ttk.Label(
             dialog,
-            text="日付は YYYY-MM-DD、時間帯は HH:MM-HH:MM 形式で入力してください。",
+            text="日付はカレンダーで選択、または YYYY-MM-DD で入力。\n時間帯は HH:MM-HH:MM 形式で入力してください。",
         ).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=12, pady=(0, 8))
         row += 1
 
@@ -1549,7 +1566,7 @@ class Court_Reserv(tk.Frame):
         def on_save():
             values = (
                 facility_var.get().strip(),
-                date_var.get().strip(),
+                selected_date,
                 time_range_var.get().strip(),
             )
             if include_account:
@@ -1568,7 +1585,15 @@ class Court_Reserv(tk.Frame):
             row=0, column=2
         )
 
-        self.master.wait_window(dialog)
+        dialog.bind("<Escape>", lambda event: dialog.destroy())
+        dialog.wait_visibility()
+        date_input.entry.focus_set()
+        try:
+            parent.wait_window(dialog)
+        finally:
+            if previous_grab is not None and previous_grab.winfo_exists():
+                previous_grab.grab_set()
+                previous_grab.focus_set()
         return result["values"]
 
     def _tree_values(self, tree):
