@@ -841,8 +841,6 @@ class LotteryService:
         account_index=None,
         entry_index=None,
         select_result=None,
-        manual_final_submit=False,
-        manual_preconfirm_submit=False,
         wait_alert_seconds=10,
     ):
         summary = {
@@ -864,8 +862,6 @@ class LotteryService:
                 "completion_detected": False,
                 "recaptcha_detected": False,
             },
-            "manual_final_submit_enabled": bool(manual_final_submit),
-            "manual_preconfirm_submit_enabled": bool(manual_preconfirm_submit),
             "recaptcha_recovery": {
                 "attempted": False,
                 "retry_count": 0,
@@ -950,53 +946,8 @@ class LotteryService:
                 summary["status"] = "slot_selection_not_applied"
                 summary["error_message"] = "slot selection was not applied to submit form"
                 return summary
-            if manual_preconfirm_submit:
-                self.logger.info("manual_preconfirm_submit_enabled=True")
-                self.logger.info("waiting_manual_preconfirm_submit")
-                self._prompt_manual_preconfirm_submit(driver)
-                self.logger.info("manual_preconfirm_submit_confirmed")
-                self._human_sleep(fixed=0.3)
-                go_to_confirm = {
-                    "success": False,
-                    "method": "manual_click",
-                    "pre_click": self.navigation_service.execute_script(
-                        driver,
-                        """
-                        const button = document.getElementById("btn-go");
-                        const displayNo = document.querySelector('input[name="displayNo"]');
-                        return {
-                          selectFieldCnt: document.getElementById("selectFieldCnt")
-                            ? document.getElementById("selectFieldCnt").value || ""
-                            : "",
-                          display_no: displayNo ? (displayNo.value || "") : "",
-                          title: document.title || "",
-                          current_url: window.location.href,
-                          btn_go: button
-                            ? {
-                                displayed: !!(button.offsetWidth || button.offsetHeight || button.getClientRects().length),
-                                enabled: !button.disabled,
-                                onclick: button.getAttribute("onclick") || "",
-                              }
-                            : null,
-                        };
-                        """,
-                    ),
-                    "post_click": {},
-                }
-                confirm_reached = self._wait_for_confirmation_page(
-                    driver,
-                    wait_alert_seconds=wait_alert_seconds,
-                )
-                try:
-                    go_to_confirm["post_click"] = self.navigation_service.inspect_page_state(
-                        driver
-                    )
-                    go_to_confirm["success"] = bool(confirm_reached)
-                except Exception:
-                    pass
-            else:
-                self._human_sleep(fixed=0.3)
-                go_to_confirm = self.navigation_service.go_to_temp_apply(driver)
+            self._human_sleep(fixed=0.3)
+            go_to_confirm = self.navigation_service.go_to_temp_apply(driver)
             confirm_reached = self._wait_for_confirmation_page(
                 driver,
                 wait_alert_seconds=wait_alert_seconds,
@@ -1051,8 +1002,6 @@ class LotteryService:
                     )
                 )
                 return summary
-            if manual_preconfirm_submit and confirm_reached:
-                self.logger.info("manual_preconfirm_submit_completed")
             summary["debug_files"].extend(
                 self._save_submission_debug(
                     driver,
@@ -1093,7 +1042,6 @@ class LotteryService:
             submission_result = self._submit_with_recovery(
                 driver,
                 sel_val=apply_no,
-                manual_final_submit=manual_final_submit,
                 wait_alert_seconds=wait_alert_seconds,
             )
             summary["states"].extend(submission_result.get("states", []))
@@ -1273,7 +1221,6 @@ class LotteryService:
         self,
         driver,
         sel_val,
-        manual_final_submit=False,
         wait_alert_seconds=10,
     ):
         result = {
@@ -1340,14 +1287,8 @@ class LotteryService:
             )
             return snapshot
 
-        if manual_final_submit:
-            self.logger.info("manual_final_submit_enabled=True")
-            self.logger.info("waiting_manual_final_submit")
-            self._prompt_manual_final_submit(driver)
-            self.logger.info("manual_final_submit_confirmed")
-        else:
-            self._human_sleep(fixed=0.3)
-            self._trigger_final_apply(driver)
+        self._human_sleep(fixed=0.3)
+        self._trigger_final_apply(driver)
 
         accepted = self._accept_submission_alerts(driver, result, timeout=max(wait_alert_seconds, 60))
         if accepted:
@@ -1361,8 +1302,6 @@ class LotteryService:
             if state.get("state") == "completed":
                 result["completed"] = True
                 result["completion_detected_without_recaptcha"] = True
-                if manual_final_submit:
-                    self.logger.info("manual_final_submit_completed")
                 return result
 
             if state.get("state") == "alert":
@@ -1370,6 +1309,7 @@ class LotteryService:
                     alert = driver.switch_to.alert
                     alert_text = alert.text
                     result["last_alert_text"] = alert_text
+                    self._wait_before_submission_alert_accept()
                     alert.accept()
                     self.logger.info("Accepted confirmation alert: %s", alert_text)
                 except Exception:
@@ -1469,8 +1409,6 @@ class LotteryService:
                         result["completed"] = True
                         result["recovery_completed"] = True
                         result["completion_detected_after_recaptcha"] = True
-                        if manual_final_submit:
-                            self.logger.info("manual_final_submit_completed")
                         return result
                 result["recovery_completed"] = True
                 continue
@@ -1497,29 +1435,14 @@ class LotteryService:
         )
         return result
 
-    def _prompt_manual_final_submit(self, driver):
-        try:
-            self.show_info(
-                "手動最終送信",
-                "申込みボタンを手動で押してください。\n押したらOKを押してください。",
-            )
-        except Exception:
-            self.logger.info(
-                "手動最終送信: 申込みボタンを手動で押してください。押したらOKを押してください。"
-            )
-        return {}
-
-    def _prompt_manual_preconfirm_submit(self, driver):
-        try:
-            self.show_info(
-                "手動申込みボタン",
-                "申込みボタンを手動で押してください。\n押したらOKを押してください。",
-            )
-        except Exception:
-            self.logger.info(
-                "手動申込みボタン: 申込みボタンを手動で押してください。押したらOKを押してください。"
-            )
-        return {}
+    def _wait_before_submission_alert_accept(self):
+        """Avoid accepting the site's final confirmation alert immediately."""
+        wait_seconds = 0.3
+        self.logger.info(
+            "Waiting %.1f seconds before accepting submission alert",
+            wait_seconds,
+        )
+        self.sleep_func(wait_seconds)
 
     def _accept_submission_alerts(self, driver, result, timeout=60):
         accepted = False
@@ -1538,6 +1461,7 @@ class LotteryService:
                         "attempt": attempt,
                     }
                 )
+                self._wait_before_submission_alert_accept()
                 alert.accept()
                 accepted = True
                 self.logger.info("Accepted confirmation alert: %s", alert_text)
@@ -1556,6 +1480,7 @@ class LotteryService:
                     alert = driver.switch_to.alert
                     alert_text = alert.text
                     result["last_alert_text"] = alert_text
+                    self._wait_before_submission_alert_accept()
                     alert.accept()
                     accepted = True
                     self.logger.info("Accepted unexpected confirmation alert: %s", alert_text)
